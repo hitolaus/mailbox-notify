@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailbox-notify"
+version = "0.1.0"
+description = "Local mediator between a Philips Hue mailbox sensor and a Divoom Pixoo64"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohue>=4.8.1",
+  "aiohttp>=3.9.0",
+  "pixoo @ git+https://github.com/SomethingWithComputers/pixoo.git@v0.9.2",
+]
+
+[project.scripts]
+mailbox-notify = "mailbox_notify.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

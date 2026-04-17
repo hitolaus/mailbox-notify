@@ -1,0 +1,1 @@
+"""mailbox_notify package."""

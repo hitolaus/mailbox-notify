@@ -1,0 +1,37 @@
+# AGENTS.md
+
+## Project rules
+
+- Use Python for the implementation.
+- Prefer async code and event-driven updates.
+- Assume exactly one Philips Hue Bridge and one Pixoo64.
+- Do not add multi-device abstractions unless they are needed later.
+- Keep device adapters small and isolated.
+
+## Architecture guidance
+
+- `hue.py`: Philips Hue v2 event stream client and event mapping.
+- `pixoo.py`: Pixoo64 display adapter.
+- `state.py`: mailbox notification state machine.
+- `config.py`: environment-based configuration loading.
+- `app.py`: application wiring and runtime loop.
+
+## Integration details
+
+- Use `aiohue` for Hue bridge communication.
+- Prefer direct Pixoo HTTP/API control unless a reliable library is already known to work.
+- Treat the mailbox sensor as the source of truth for the "new mail" state.
+- Treat the Hue button press as the only clear action.
+
+## Code style
+
+- Keep changes minimal and focused.
+- Prefer small functions over deep abstraction.
+- Add tests for state transitions and event handling before expanding features.
+- Avoid premature support for extra sensors, buttons, or displays.
+
+## Operational expectations
+
+- The app is intended to run locally on the LAN.
+- Do not assume cloud connectivity.
+- Log enough detail to debug bridge connection issues and event handling.
