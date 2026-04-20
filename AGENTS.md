@@ -15,13 +15,18 @@
 - `state.py`: mailbox notification state machine.
 - `config.py`: environment-based configuration loading.
 - `app.py`: application wiring and runtime loop.
+- `src/cli/mock_hue_bridge.py`: interactive local mock Hue Bridge with HTTP event stream and resource endpoints.
 
 ## Integration details
 
 - Use `aiohue` for Hue bridge communication.
+- The Hue adapter currently uses explicit `HUE_CONTACT_ID` and `HUE_BUTTON_ID` resource IDs instead of auto-discovery.
+- The Hue adapter supports both real bridges and the local mock bridge via `HUE_BASE_URL`.
 - Prefer direct Pixoo HTTP/API control unless a reliable library is already known to work.
 - Treat the mailbox sensor as the source of truth for the "new mail" state.
 - Treat the Hue button press as the only clear action.
+- Treat Hue `contact_report.state == contact` as the mail-detected signal.
+- Treat Hue `button.button_report.event == initial_press` as the clear signal.
 
 ## Code style
 
@@ -35,3 +40,5 @@
 - The app is intended to run locally on the LAN.
 - Do not assume cloud connectivity.
 - Log enough detail to debug bridge connection issues and event handling.
+- The app logs each normalized Hue event when it is received in `app.py`.
+- The mock bridge is HTTP-only and is intended for local development and Pixoo integration testing.

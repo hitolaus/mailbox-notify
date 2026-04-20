@@ -29,12 +29,13 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Sync dependencies: `uv sync --locked`
 - Set `HUE_BASE_URL` or `HUE_BRIDGE_HOST`
 - Set `HUE_API_TOKEN`, `HUE_CONTACT_ID`, and `HUE_BUTTON_ID`
-- Run the app: `uv run mailbox-notify`
 - Run the mock Hue bridge: `uv run mailbox-notify-mock-hue`
+- Run the app: `uv run mailbox-notify`
 
 ## Intended structure
 
 - `src/mailbox_notify/` for the application package.
+- `src/cli/` for developer-facing helper CLIs such as the mock Hue Bridge.
 - `tests/` for state and event handling tests.
 - `AGENTS.md` for implementation guidance and project rules.
 
@@ -45,6 +46,8 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Keep the state machine small and explicit: `mail_present` on sensor trigger, `cleared` on button press.
 - Make display updates idempotent so repeated sensor events do not cause unnecessary redraws.
 - The app now uses a real `aiohue` event-stream client and can point at either a Hue bridge or the local mock bridge.
+- The app logs each normalized Hue event when it is received.
+- The mock Hue Bridge is HTTP-only and serves both `/eventstream/clip/v2` and minimal `/clip/v2/resource` endpoints for local integration testing.
 
 ## Environment
 
@@ -58,6 +61,7 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 ## Mock Bridge Example
 
 - Start the mock bridge: `uv run mailbox-notify-mock-hue --port 8000 --token mock-hue-token`
+- Use `o` to simulate `contact_report.state == contact` and `b` to simulate `button.button_report.event == initial_press`
 - Run the app against it with `HUE_BASE_URL=http://127.0.0.1:8000 HUE_API_TOKEN=mock-hue-token HUE_CONTACT_ID=mock-contact-id HUE_BUTTON_ID=mock-button-id uv run mailbox-notify`
 
 ## Next steps
