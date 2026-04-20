@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 mailbox-notify = "mailbox_notify.app:main"
+mailbox-notify-mock-hue = "cli.mock_hue_bridge:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
