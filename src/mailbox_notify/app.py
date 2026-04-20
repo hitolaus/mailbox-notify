@@ -21,8 +21,8 @@ from .config import (
     load_config,
     save_config,
 )
-from .hue import AioHueClient, HueClient
-from .pixoo import PixooDisplay, create_pixoo_display
+from .hue import AioHueClient, HueClient, discover_hue_bridges
+from .pixoo import PixooDisplay, create_pixoo_display, discover_pixoo_devices
 from .state import MailboxStateMachine
 
 
@@ -371,7 +371,11 @@ INDEX_HTML = """<!DOCTYPE html>
             <div class="field-grid">
               <div class="field">
                 <label for="hue-base-url">Hue Base URL</label>
-                <input id="hue-base-url" type="text" placeholder="http://127.0.0.1:8000">
+                <div class="inline-row">
+                  <input id="hue-base-url" type="text" placeholder="http://127.0.0.1:8000">
+                  <button type="button" class="button-secondary" data-live-discover="hue-bridge-results" data-live-discover-url="/api/discover/hue-bridges">Discover Bridges</button>
+                </div>
+                <div id="hue-bridge-results" class="mock-results" data-input-target="hue-base-url"></div>
               </div>
               <div class="field">
                 <label for="hue-api-token">Hue API Token</label>
@@ -410,12 +414,9 @@ INDEX_HTML = """<!DOCTYPE html>
                 <label for="pixoo-host">Pixoo Host</label>
                 <div class="inline-row">
                   <input id="pixoo-host" type="text" placeholder="10.0.0.47">
-                  <button type="button" class="button-secondary" data-discover-target="pixoo-results">Discover Pixoo</button>
+                  <button type="button" class="button-secondary" data-live-discover="pixoo-results" data-live-discover-url="/api/discover/pixoo">Discover Pixoo</button>
                 </div>
-                <div id="pixoo-results" class="mock-results" data-input-target="pixoo-host">
-                  <button type="button" class="mock-option" data-value="10.0.0.47">Pixoo64<small>10.0.0.47</small></button>
-                  <button type="button" class="mock-option" data-value="10.0.0.52">Pixoo64 Office<small>10.0.0.52</small></button>
-                </div>
+                <div id="pixoo-results" class="mock-results" data-input-target="pixoo-host"></div>
               </div>
             </div>
           </section>
@@ -447,6 +448,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
   <script>
     const discoverButtons = document.querySelectorAll('[data-discover-target]');
+    const liveDiscoverButtons = document.querySelectorAll('[data-live-discover]');
     const resultPanels = document.querySelectorAll('.mock-results');
 
     function closeOtherPanels(openPanelId) {
@@ -470,7 +472,7 @@ INDEX_HTML = """<!DOCTYPE html>
       });
     });
 
-    resultPanels.forEach((panel) => {
+    function bindResultOptions(panel) {
       const input = document.getElementById(panel.dataset.inputTarget || '');
       panel.querySelectorAll('.mock-option').forEach((option) => {
         option.addEventListener('click', () => {
@@ -479,6 +481,53 @@ INDEX_HTML = """<!DOCTYPE html>
           }
           panel.classList.remove('open');
         });
+      });
+    }
+
+    resultPanels.forEach((panel) => {
+      bindResultOptions(panel);
+    });
+
+    liveDiscoverButtons.forEach((button) => {
+      button.addEventListener('click', async () => {
+        const panel = document.getElementById(button.dataset.liveDiscover || '');
+        const url = button.dataset.liveDiscoverUrl;
+        if (!panel || !url) {
+          return;
+        }
+
+        closeOtherPanels(panel.id);
+        const isPixoo = url.includes('/api/discover/pixoo');
+        panel.innerHTML = '<div class="footnote">' + (isPixoo ? 'Discovering Pixoo devices...' : 'Discovering bridges...') + '</div>';
+        panel.classList.add('open');
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error('Discovery failed');
+          }
+
+          const bridges = await response.json();
+          if (!Array.isArray(bridges) || bridges.length === 0) {
+            panel.innerHTML = '<div class="footnote">' + (isPixoo ? 'No Pixoo devices found on the network.' : 'No Hue Bridges found on the network.') + '</div>';
+            return;
+          }
+
+          panel.innerHTML = bridges.map((bridge) => {
+            const value = isPixoo ? bridge.host : bridge.base_url;
+            const title = isPixoo ? bridge.name : 'Hue Bridge';
+            const subtitle = isPixoo
+              ? bridge.host + ' · ' + bridge.device_id
+              : bridge.internalipaddress + ' · ' + bridge.id;
+            return '<button type="button" class="mock-option" data-value="' + value + '">' +
+              title +
+              '<small>' + subtitle + '</small>' +
+              '</button>';
+          }).join('');
+          bindResultOptions(panel);
+        } catch (error) {
+          panel.innerHTML = '<div class="footnote">' + (isPixoo ? 'Unable to discover Pixoo devices right now.' : 'Unable to discover Hue Bridges right now.') + '</div>';
+        }
       });
     });
   </script>
@@ -507,6 +556,20 @@ class ConfigPayload(BaseModel):
     def to_config(self) -> Config:
         data = {key: value.strip() for key, value in self.model_dump().items()}
         return Config(**data)
+
+
+class HueBridgePayload(BaseModel):
+    id: str
+    internalipaddress: str
+    base_url: str
+
+
+class PixooDevicePayload(BaseModel):
+    name: str
+    host: str
+    device_id: str
+    device_mac: str
+    hardware: str
 
 
 class MailboxRuntimeManager:
@@ -626,6 +689,16 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
     async def get_status() -> dict[str, bool]:
         runtime_manager: RuntimeManager = app.state.runtime_manager
         return runtime_manager.status()
+
+    @app.get("/api/discover/hue-bridges")
+    async def get_hue_bridges() -> list[HueBridgePayload]:
+        bridges = await discover_hue_bridges()
+        return [HueBridgePayload(**bridge) for bridge in bridges]
+
+    @app.get("/api/discover/pixoo")
+    async def get_pixoo_devices() -> list[PixooDevicePayload]:
+        devices = await discover_pixoo_devices()
+        return [PixooDevicePayload(**device) for device in devices]
 
     return app
 

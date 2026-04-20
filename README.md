@@ -67,6 +67,8 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - `GET /api/config`: returns the current configuration.
 - `PUT /api/config`: saves configuration and immediately restarts the runtime.
 - `GET /api/status`: returns whether the config is complete and whether the runtime is currently running.
+- `GET /api/discover/hue-bridges`: discovers Hue Bridges on the local network via the Hue discovery service.
+- `GET /api/discover/pixoo`: discovers Pixoo devices on the local network.
 
 ## Pixoo Behavior
 
@@ -87,4 +89,5 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 
 ## Next steps
 
-- Implement the real configuration webpage.
+- Wire the form to load and save real config values.
+- Replace mocked Hue contact/button discovery with live API-backed discovery.

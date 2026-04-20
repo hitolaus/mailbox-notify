@@ -4,7 +4,11 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from mailbox_notify.pixoo import PixooClient, create_pixoo_display
+from mailbox_notify.pixoo import (
+    PixooClient,
+    create_pixoo_display,
+    discover_pixoo_devices,
+)
 
 
 class FakePixooDevice:
@@ -77,6 +81,61 @@ class PixooClientTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PixooFactoryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discover_pixoo_devices_returns_normalized_entries(self) -> None:
+        payload = {
+            "ReturnCode": 0,
+            "DeviceList": [
+                {
+                    "DeviceName": "Pixoo64",
+                    "DevicePrivateIP": "10.0.0.47",
+                    "DeviceId": 300247395,
+                    "DeviceMac": "2cbcbb116a0c",
+                    "Hardware": 92,
+                }
+            ],
+        }
+
+        class FakeResponse:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self) -> None:
+                return None
+
+            async def json(self):
+                return payload
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def post(self, url):
+                return FakeResponse()
+
+        with patch(
+            "mailbox_notify.pixoo.aiohttp.ClientSession", return_value=FakeSession()
+        ):
+            devices = await discover_pixoo_devices()
+
+        self.assertEqual(
+            devices,
+            [
+                {
+                    "name": "Pixoo64",
+                    "host": "10.0.0.47",
+                    "device_id": "300247395",
+                    "device_mac": "2cbcbb116a0c",
+                    "hardware": "92",
+                }
+            ],
+        )
+
     async def test_pixoo_host_skips_discovery(self) -> None:
         device = FakePixooDevice("10.0.0.9")
 

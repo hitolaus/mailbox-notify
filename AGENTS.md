@@ -22,6 +22,7 @@
 - Use `aiohue` for Hue bridge communication.
 - The Hue adapter currently uses explicit `HUE_CONTACT_ID` and `HUE_BUTTON_ID` resource IDs instead of auto-discovery.
 - The Hue adapter supports both real bridges and the local mock bridge via `hue_base_url` in the JSON config.
+- The FastAPI app can discover Hue Bridges on the LAN through the Hue discovery service for configuration UI use.
 - The Pixoo adapter uses the `pixoo` library for device control.
 - Pixoo device selection prefers `pixoo_host`; otherwise it auto-discovers on the LAN and uses the first device returned.
 - If Pixoo auto-discovery is not available through the library, fall back to `https://app.divoom-gz.com/Device/ReturnSameLANDevice`.
@@ -46,4 +47,5 @@
 - The app logs each normalized Hue event when it is received in `app.py`.
 - The main application process is a FastAPI server that hosts a simple configuration page and JSON API.
 - Configuration is stored in a local `config.json` file in the project root and updates should restart the runtime immediately.
+- The current UI has live Hue bridge and Pixoo discovery controls, while contact/button discovery is still mocked in the page.
 - The mock bridge is HTTP-only and is intended for local development and Pixoo integration testing.

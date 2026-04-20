@@ -150,7 +150,9 @@ class AppApiTests(unittest.TestCase):
             self.assertEqual(root.status_code, 200)
             self.assertIn("Configure your mailbox display", root.text)
             self.assertIn("Mailbox Notify", root.text)
+            self.assertIn("Discover Bridges", root.text)
             self.assertIn("Discover Pixoo", root.text)
+            self.assertIn("/api/discover/pixoo", root.text)
             self.assertIn("Discover Contacts", root.text)
             self.assertIn("Discover Buttons", root.text)
             self.assertEqual(config_response.status_code, 200)
@@ -163,4 +165,76 @@ class AppApiTests(unittest.TestCase):
             self.assertEqual(manager.restarted_with, Config(**payload))
             self.assertEqual(
                 status_response.json(), {"configured": True, "running": True}
+            )
+
+    def test_hue_bridge_discovery_endpoint_returns_normalized_bridges(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with (
+                patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager),
+                patch(
+                    "mailbox_notify.app.discover_hue_bridges",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "id": "bridge-id-1",
+                                "internalipaddress": "10.0.0.20",
+                                "base_url": "https://10.0.0.20",
+                            }
+                        ]
+                    ),
+                ),
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.get("/api/discover/hue-bridges")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "id": "bridge-id-1",
+                        "internalipaddress": "10.0.0.20",
+                        "base_url": "https://10.0.0.20",
+                    }
+                ],
+            )
+
+    def test_pixoo_discovery_endpoint_returns_normalized_devices(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with (
+                patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager),
+                patch(
+                    "mailbox_notify.app.discover_pixoo_devices",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "name": "Pixoo64",
+                                "host": "10.0.0.47",
+                                "device_id": "300247395",
+                                "device_mac": "2cbcbb116a0c",
+                                "hardware": "92",
+                            }
+                        ]
+                    ),
+                ),
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.get("/api/discover/pixoo")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "name": "Pixoo64",
+                        "host": "10.0.0.47",
+                        "device_id": "300247395",
+                        "device_mac": "2cbcbb116a0c",
+                        "hardware": "92",
+                    }
+                ],
             )

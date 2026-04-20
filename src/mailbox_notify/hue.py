@@ -20,6 +20,7 @@ from .state import HueEvent, HueEventType
 
 
 LOGGER = logging.getLogger(__name__)
+HUE_DISCOVERY_URL = "https://discovery.meethue.com/"
 
 
 class HueClient(Protocol):
@@ -28,6 +29,29 @@ class HueClient(Protocol):
     async def disconnect(self) -> None: ...
 
     def events(self) -> AsyncIterator[HueEvent]: ...
+
+
+async def discover_hue_bridges() -> list[dict[str, str]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(HUE_DISCOVERY_URL) as response:
+            response.raise_for_status()
+            payload = await response.json()
+
+    bridges: list[dict[str, str]] = []
+    for entry in payload:
+        bridge_id = str(entry.get("id", "")).strip()
+        ip_address = str(entry.get("internalipaddress", "")).strip()
+        if not bridge_id or not ip_address:
+            continue
+        bridges.append(
+            {
+                "id": bridge_id,
+                "internalipaddress": ip_address,
+                "base_url": f"https://{ip_address}",
+            }
+        )
+
+    return bridges
 
 
 class ConfigurableHueBridge(HueBridgeV2):

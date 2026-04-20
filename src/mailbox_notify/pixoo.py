@@ -52,6 +52,35 @@ class PixooDisplay(Protocol):
     async def clear(self) -> None: ...
 
 
+async def discover_pixoo_devices() -> list[dict[str, str]]:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(DISCOVERY_URL) as response:
+            response.raise_for_status()
+            payload = await response.json()
+
+    if payload.get("ReturnCode") != 0:
+        raise RuntimeError(
+            f"Divoom LAN discovery failed: {payload.get('ReturnMessage', 'unknown error')}"
+        )
+
+    devices: list[dict[str, str]] = []
+    for entry in payload.get("DeviceList", []):
+        host = str(entry.get("DevicePrivateIP", "")).strip()
+        if not host:
+            continue
+        devices.append(
+            {
+                "name": str(entry.get("DeviceName", "")).strip(),
+                "host": host,
+                "device_id": str(entry.get("DeviceId", "")).strip(),
+                "device_mac": str(entry.get("DeviceMac", "")).strip(),
+                "hardware": str(entry.get("Hardware", "")).strip(),
+            }
+        )
+
+    return devices
+
+
 @dataclass
 class PixooClient(PixooDisplay):
     """Minimal async adapter over the pixoo library."""
@@ -264,18 +293,8 @@ def _load_pixoo_class():
 
 
 async def _discover_lan_pixoo_host() -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.post(DISCOVERY_URL) as response:
-            response.raise_for_status()
-            payload = await response.json()
-
-    if payload.get("ReturnCode") != 0:
-        raise RuntimeError(
-            f"Divoom LAN discovery failed: {payload.get('ReturnMessage', 'unknown error')}"
-        )
-
-    devices = payload.get("DeviceList", [])
+    devices = await discover_pixoo_devices()
     if not devices:
         raise RuntimeError("No Pixoo devices found on the local network")
 
-    return devices[0]["DevicePrivateIP"]
+    return devices[0]["host"]
