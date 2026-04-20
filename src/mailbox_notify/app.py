@@ -8,7 +8,7 @@ from contextlib import suppress
 
 from .config import load_config
 from .hue import AioHueClient, HueClient
-from .pixoo import PixooDisplay, StubPixooDisplay
+from .pixoo import PixooDisplay, create_pixoo_display
 from .state import MailboxStateMachine
 
 
@@ -31,7 +31,7 @@ async def serve(
 
 async def run() -> None:
     config = load_config()
-    display = StubPixooDisplay()
+    display = await create_pixoo_display(config.pixoo_host)
     state_machine = MailboxStateMachine()
 
     while True:

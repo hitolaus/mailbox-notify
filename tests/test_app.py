@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from mailbox_notify.app import main, run, serve
 from mailbox_notify.config import Config
 from mailbox_notify.hue import button_pressed, mail_detected
-from mailbox_notify.pixoo import StubPixooDisplay
 from mailbox_notify.state import MailboxStateMachine
 
 
@@ -27,10 +26,21 @@ class FakeHueClient:
             yield event
 
 
+class FakePixooDisplay:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def show_new_mail(self) -> None:
+        self.calls.append("show_new_mail")
+
+    async def clear(self) -> None:
+        self.calls.append("clear")
+
+
 class AppServeTests(unittest.IsolatedAsyncioTestCase):
     async def test_serve_drives_display_from_hue_events(self) -> None:
         hue = FakeHueClient([mail_detected(), button_pressed()])
-        display = StubPixooDisplay()
+        display = FakePixooDisplay()
         state = MailboxStateMachine()
 
         with self.assertLogs("mailbox_notify.app", level="INFO") as logs:
@@ -65,8 +75,14 @@ class AppMainTests(unittest.TestCase):
             self.assertEqual(hue_client.button_id, fake_config.hue_button_id)
             raise asyncio.CancelledError
 
+        fake_display = FakePixooDisplay()
+
         with (
             patch("mailbox_notify.app.load_config", return_value=fake_config),
+            patch(
+                "mailbox_notify.app.create_pixoo_display",
+                new=AsyncMock(return_value=fake_display),
+            ),
             patch(
                 "mailbox_notify.app.serve",
                 side_effect=assert_client,

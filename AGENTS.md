@@ -22,11 +22,14 @@
 - Use `aiohue` for Hue bridge communication.
 - The Hue adapter currently uses explicit `HUE_CONTACT_ID` and `HUE_BUTTON_ID` resource IDs instead of auto-discovery.
 - The Hue adapter supports both real bridges and the local mock bridge via `HUE_BASE_URL`.
-- Prefer direct Pixoo HTTP/API control unless a reliable library is already known to work.
+- The Pixoo adapter uses the `pixoo` library for device control.
+- Pixoo device selection prefers `PIXOO_HOST`; otherwise it auto-discovers on the LAN and uses the first device returned.
+- If Pixoo auto-discovery is not available through the library, fall back to `https://app.divoom-gz.com/Device/ReturnSameLANDevice`.
 - Treat the mailbox sensor as the source of truth for the "new mail" state.
 - Treat the Hue button press as the only clear action.
 - Treat Hue `contact_report.state == contact` as the mail-detected signal.
 - Treat Hue `button.button_report.event == initial_press` as the clear signal.
+- The Pixoo notification rendering is a continuously looping modern envelope-opening animation.
 
 ## Code style
 

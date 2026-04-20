@@ -46,6 +46,7 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Keep the state machine small and explicit: `mail_present` on sensor trigger, `cleared` on button press.
 - Make display updates idempotent so repeated sensor events do not cause unnecessary redraws.
 - The app now uses a real `aiohue` event-stream client and can point at either a Hue bridge or the local mock bridge.
+- The app now uses a real Pixoo adapter built on the `pixoo` library.
 - The app logs each normalized Hue event when it is received.
 - The mock Hue Bridge is HTTP-only and serves both `/eventstream/clip/v2` and minimal `/clip/v2/resource` endpoints for local integration testing.
 
@@ -56,7 +57,14 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - `HUE_API_TOKEN`: Hue application key.
 - `HUE_CONTACT_ID`: Hue `contact` resource ID for the mailbox sensor.
 - `HUE_BUTTON_ID`: Hue `button` resource ID for the clear action.
-- `PIXOO_HOST`: Pixoo64 host.
+- `PIXOO_HOST`: optional Pixoo64 host. If unset, the app auto-discovers Pixoo devices on the LAN and uses the first one found.
+
+## Pixoo Behavior
+
+- `show_new_mail()` runs a continuously looping modern envelope-opening animation to attract attention.
+- The fully open envelope frame is held slightly longer than the transition frames.
+- `clear()` clears the Pixoo display to black.
+- Pixoo discovery prefers the library's built-in discovery and falls back to the Divoom LAN discovery endpoint when needed.
 
 ## Mock Bridge Example
 
