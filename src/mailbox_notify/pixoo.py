@@ -32,7 +32,7 @@ CENTER_X = (ENVELOPE_LEFT + ENVELOPE_RIGHT) // 2
 LABEL_X = 18
 LABEL_Y = 50
 FRAMES = (
-    {"open": 0.0, "letter_offset": 0, "hold": 5.0},
+    {"open": 0.0, "letter_offset": 0, "hold": 4.0},
     {"open": 0.16, "letter_offset": 0, "hold": 0.08},
     {"open": 0.32, "letter_offset": 0, "hold": 0.08},
     {"open": 0.54, "letter_offset": 1, "hold": 0.08},
