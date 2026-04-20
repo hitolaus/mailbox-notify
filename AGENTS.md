@@ -13,17 +13,17 @@
 - `hue.py`: Philips Hue v2 event stream client and event mapping.
 - `pixoo.py`: Pixoo64 display adapter.
 - `state.py`: mailbox notification state machine.
-- `config.py`: environment-based configuration loading.
-- `app.py`: application wiring and runtime loop.
+- `config.py`: JSON file based configuration loading and persistence.
+- `app.py`: FastAPI app, configuration API, and runtime manager.
 - `src/cli/mock_hue_bridge.py`: interactive local mock Hue Bridge with HTTP event stream and resource endpoints.
 
 ## Integration details
 
 - Use `aiohue` for Hue bridge communication.
 - The Hue adapter currently uses explicit `HUE_CONTACT_ID` and `HUE_BUTTON_ID` resource IDs instead of auto-discovery.
-- The Hue adapter supports both real bridges and the local mock bridge via `HUE_BASE_URL`.
+- The Hue adapter supports both real bridges and the local mock bridge via `hue_base_url` in the JSON config.
 - The Pixoo adapter uses the `pixoo` library for device control.
-- Pixoo device selection prefers `PIXOO_HOST`; otherwise it auto-discovers on the LAN and uses the first device returned.
+- Pixoo device selection prefers `pixoo_host`; otherwise it auto-discovers on the LAN and uses the first device returned.
 - If Pixoo auto-discovery is not available through the library, fall back to `https://app.divoom-gz.com/Device/ReturnSameLANDevice`.
 - Treat the mailbox sensor as the source of truth for the "new mail" state.
 - Treat the Hue button press as the only clear action.
@@ -44,4 +44,6 @@
 - Do not assume cloud connectivity.
 - Log enough detail to debug bridge connection issues and event handling.
 - The app logs each normalized Hue event when it is received in `app.py`.
+- The main application process is a FastAPI server that hosts a simple configuration page and JSON API.
+- Configuration is stored in a local `config.json` file in the project root and updates should restart the runtime immediately.
 - The mock bridge is HTTP-only and is intended for local development and Pixoo integration testing.

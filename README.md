@@ -27,10 +27,10 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 
 - Install `uv` if needed: `brew install uv`
 - Sync dependencies: `uv sync --locked`
-- Set `HUE_BASE_URL` or `HUE_BRIDGE_HOST`
-- Set `HUE_API_TOKEN`, `HUE_CONTACT_ID`, and `HUE_BUTTON_ID`
 - Run the mock Hue bridge: `uv run mailbox-notify-mock-hue`
 - Run the app: `uv run mailbox-notify`
+- Open `http://127.0.0.1:8000/`
+- The app creates `config.json` in the project root on first start
 
 ## Intended structure
 
@@ -47,17 +47,26 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Make display updates idempotent so repeated sensor events do not cause unnecessary redraws.
 - The app now uses a real `aiohue` event-stream client and can point at either a Hue bridge or the local mock bridge.
 - The app now uses a real Pixoo adapter built on the `pixoo` library.
+- The main process is a FastAPI server with a dummy configuration page and JSON configuration API.
+- Configuration is stored in `config.json` and saving settings restarts the runtime immediately.
 - The app logs each normalized Hue event when it is received.
 - The mock Hue Bridge is HTTP-only and serves both `/eventstream/clip/v2` and minimal `/clip/v2/resource` endpoints for local integration testing.
 
-## Environment
+## Configuration File
 
-- `HUE_BASE_URL`: optional full bridge URL such as `http://127.0.0.1:8000` for the mock bridge.
-- `HUE_BRIDGE_HOST`: optional host used when `HUE_BASE_URL` is not set. The app will use `https://<host>`.
-- `HUE_API_TOKEN`: Hue application key.
-- `HUE_CONTACT_ID`: Hue `contact` resource ID for the mailbox sensor.
-- `HUE_BUTTON_ID`: Hue `button` resource ID for the clear action.
-- `PIXOO_HOST`: optional Pixoo64 host. If unset, the app auto-discovers Pixoo devices on the LAN and uses the first one found.
+- `config.json` stores:
+- `hue_base_url`: full bridge URL such as `http://127.0.0.1:8000` for the mock bridge.
+- `hue_api_token`: Hue application key.
+- `hue_contact_id`: Hue `contact` resource ID for the mailbox sensor.
+- `hue_button_id`: Hue `button` resource ID for the clear action.
+- `pixoo_host`: optional Pixoo64 host. If unset, the app auto-discovers Pixoo devices on the LAN and uses the first one found.
+
+## API
+
+- `GET /`: dummy configuration page.
+- `GET /api/config`: returns the current configuration.
+- `PUT /api/config`: saves configuration and immediately restarts the runtime.
+- `GET /api/status`: returns whether the config is complete and whether the runtime is currently running.
 
 ## Pixoo Behavior
 
@@ -70,9 +79,12 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 
 - Start the mock bridge: `uv run mailbox-notify-mock-hue --port 8000 --token mock-hue-token`
 - Use `o` to simulate `contact_report.state == contact` and `b` to simulate `button.button_report.event == initial_press`
-- Run the app against it with `HUE_BASE_URL=http://127.0.0.1:8000 HUE_API_TOKEN=mock-hue-token HUE_CONTACT_ID=mock-contact-id HUE_BUTTON_ID=mock-button-id uv run mailbox-notify`
+- Update `config.json` or `PUT /api/config` with:
+- `hue_base_url=http://127.0.0.1:8000`
+- `hue_api_token=mock-hue-token`
+- `hue_contact_id=mock-contact-id`
+- `hue_button_id=mock-button-id`
 
 ## Next steps
 
-- Implement Pixoo display rendering and clear behavior.
-- Add tests for state transitions.
+- Implement the real configuration webpage.

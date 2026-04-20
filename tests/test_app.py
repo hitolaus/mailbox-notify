@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from mailbox_notify.app import main, run, serve
-from mailbox_notify.config import Config
+from fastapi.testclient import TestClient
+
+from mailbox_notify.app import create_app, main, run_mailbox_runtime, serve
+from mailbox_notify.config import Config, default_config, load_config
 from mailbox_notify.hue import button_pressed, mail_detected
 from mailbox_notify.state import MailboxStateMachine
 
@@ -37,6 +41,34 @@ class FakePixooDisplay:
         self.calls.append("clear")
 
 
+class FakeRuntimeManager:
+    last_instance: FakeRuntimeManager | None = None
+
+    def __init__(self, config_path: Path) -> None:
+        self.config_path = config_path
+        self.started = False
+        self.stopped = False
+        self.restarted_with: Config | None = None
+        self._status = {"configured": False, "running": False}
+        FakeRuntimeManager.last_instance = self
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    async def restart(self, config: Config | None = None) -> None:
+        self.restarted_with = config
+        self._status = {
+            "configured": config is not None and bool(config.hue_base_url),
+            "running": config is not None and bool(config.hue_base_url),
+        }
+
+    def status(self) -> dict[str, bool]:
+        return self._status
+
+
 class AppServeTests(unittest.IsolatedAsyncioTestCase):
     async def test_serve_drives_display_from_hue_events(self) -> None:
         hue = FakeHueClient([mail_detected(), button_pressed()])
@@ -57,8 +89,8 @@ class AppServeTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-class AppMainTests(unittest.TestCase):
-    def test_run_builds_hue_client_from_config(self) -> None:
+class AppRuntimeTests(unittest.TestCase):
+    def test_run_mailbox_runtime_builds_hue_client_from_config(self) -> None:
         fake_config = Config(
             hue_base_url="http://127.0.0.1:8000",
             hue_api_token="token",
@@ -78,26 +110,57 @@ class AppMainTests(unittest.TestCase):
         fake_display = FakePixooDisplay()
 
         with (
-            patch("mailbox_notify.app.load_config", return_value=fake_config),
             patch(
                 "mailbox_notify.app.create_pixoo_display",
                 new=AsyncMock(return_value=fake_display),
             ),
-            patch(
-                "mailbox_notify.app.serve",
-                side_effect=assert_client,
-            ),
+            patch("mailbox_notify.app.serve", side_effect=assert_client),
         ):
             with self.assertRaises(asyncio.CancelledError):
-                asyncio.run(run())
+                asyncio.run(run_mailbox_runtime(fake_config))
 
-    def test_main_suppresses_keyboard_interrupt(self) -> None:
-        def raise_keyboard_interrupt(coro):
-            coro.close()
-            raise KeyboardInterrupt
-
-        with patch(
-            "mailbox_notify.app.asyncio.run",
-            side_effect=raise_keyboard_interrupt,
-        ):
+    def test_main_runs_uvicorn(self) -> None:
+        with patch("mailbox_notify.app.uvicorn.run") as run_mock:
             main()
+
+        run_mock.assert_called_once()
+
+
+class AppApiTests(unittest.TestCase):
+    def test_root_returns_dummy_page_and_config_routes_persist_json(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    root = client.get("/")
+                    config_response = client.get("/api/config")
+                    payload = {
+                        "hue_base_url": "http://127.0.0.1:8000",
+                        "hue_api_token": "token",
+                        "hue_contact_id": "contact-id",
+                        "hue_button_id": "button-id",
+                        "pixoo_host": "",
+                    }
+                    put_response = client.put("/api/config", json=payload)
+                    status_response = client.get("/api/status")
+
+                manager = FakeRuntimeManager.last_instance
+
+            self.assertEqual(root.status_code, 200)
+            self.assertIn("Configure your mailbox display", root.text)
+            self.assertIn("Mailbox Notify", root.text)
+            self.assertIn("Discover Pixoo", root.text)
+            self.assertIn("Discover Contacts", root.text)
+            self.assertIn("Discover Buttons", root.text)
+            self.assertEqual(config_response.status_code, 200)
+            self.assertEqual(config_response.json(), default_config().__dict__)
+            self.assertEqual(put_response.status_code, 200)
+            self.assertEqual(load_config(config_path), Config(**payload))
+            self.assertIsNotNone(manager)
+            self.assertTrue(manager.started)
+            self.assertTrue(manager.stopped)
+            self.assertEqual(manager.restarted_with, Config(**payload))
+            self.assertEqual(
+                status_response.json(), {"configured": True, "running": True}
+            )
