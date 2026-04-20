@@ -47,7 +47,7 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Make display updates idempotent so repeated sensor events do not cause unnecessary redraws.
 - The app now uses a real `aiohue` event-stream client and can point at either a Hue bridge or the local mock bridge.
 - The app now uses a real Pixoo adapter built on the `pixoo` library.
-- The main process is a FastAPI server with a dummy configuration page and JSON configuration API.
+- The main process is a FastAPI server with a lightweight configuration page and JSON configuration API.
 - Configuration is stored in `config.json` and saving settings restarts the runtime immediately.
 - The app logs each normalized Hue event when it is received.
 - The mock Hue Bridge is HTTP-only and serves both `/eventstream/clip/v2` and minimal `/clip/v2/resource` endpoints for local integration testing.
@@ -63,12 +63,21 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 
 ## API
 
-- `GET /`: dummy configuration page.
+- `GET /`: configuration page that loads and saves settings through the API.
 - `GET /api/config`: returns the current configuration.
 - `PUT /api/config`: saves configuration and immediately restarts the runtime.
 - `GET /api/status`: returns whether the config is complete and whether the runtime is currently running.
 - `GET /api/discover/hue-bridges`: discovers Hue Bridges on the local network via the Hue discovery service.
 - `GET /api/discover/pixoo`: discovers Pixoo devices on the local network.
+- `POST /api/hue/create-token`: creates a Hue application key through the bridge link-button flow.
+
+## Hue Token Flow
+
+- Enter a Hue Bridge URL in `Hue Base URL`.
+- Press the physical button on the Hue Bridge.
+- Click `Create Token` in the UI.
+- The UI fills `Hue API Token` when the bridge returns a new application key.
+- Click `Save Settings` to persist the token into `config.json`.
 
 ## Pixoo Behavior
 
@@ -89,5 +98,4 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 
 ## Next steps
 
-- Wire the form to load and save real config values.
 - Replace mocked Hue contact/button discovery with live API-backed discovery.

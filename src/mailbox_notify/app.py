@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Protocol
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import uvicorn
@@ -21,7 +21,13 @@ from .config import (
     load_config,
     save_config,
 )
-from .hue import AioHueClient, HueClient, discover_hue_bridges
+from .hue import (
+    AioHueClient,
+    HueClient,
+    HueTokenCreationError,
+    create_hue_application_key,
+    discover_hue_bridges,
+)
 from .pixoo import PixooDisplay, create_pixoo_display, discover_pixoo_devices
 from .state import MailboxStateMachine
 
@@ -139,6 +145,18 @@ INDEX_HTML = """<!DOCTYPE html>
     .status-chip span {
       color: var(--muted);
       font-size: 14px;
+    }
+
+    .status-chip span.status-running {
+      color: #16a34a;
+    }
+
+    .status-chip span.status-waiting {
+      color: #d97706;
+    }
+
+    .status-chip span.status-error {
+      color: #dc2626;
     }
 
     .panel {
@@ -320,6 +338,20 @@ INDEX_HTML = """<!DOCTYPE html>
       font-size: 0.9rem;
     }
 
+    .feedback {
+      min-height: 1.2rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .feedback.success {
+      color: #16a34a;
+    }
+
+    .feedback.error {
+      color: #dc2626;
+    }
+
     @media (max-width: 860px) {
       .shell {
         margin: 20px auto;
@@ -358,7 +390,7 @@ INDEX_HTML = """<!DOCTYPE html>
       </div>
       <aside class="status-chip">
         <strong>Runtime</strong>
-        <span>Mock configuration mode. Save wiring comes next.</span>
+        <span id="runtime-status">Loading configuration...</span>
       </aside>
     </section>
 
@@ -372,19 +404,23 @@ INDEX_HTML = """<!DOCTYPE html>
               <div class="field">
                 <label for="hue-base-url">Hue Base URL</label>
                 <div class="inline-row">
-                  <input id="hue-base-url" type="text" placeholder="http://127.0.0.1:8000">
+                  <input id="hue-base-url" name="hue_base_url" data-config-key="hue_base_url" type="text" placeholder="http://127.0.0.1:8000">
                   <button type="button" class="button-secondary" data-live-discover="hue-bridge-results" data-live-discover-url="/api/discover/hue-bridges">Discover Bridges</button>
                 </div>
                 <div id="hue-bridge-results" class="mock-results" data-input-target="hue-base-url"></div>
               </div>
               <div class="field">
                 <label for="hue-api-token">Hue API Token</label>
-                <input id="hue-api-token" type="password" placeholder="Paste application key">
+                <div class="inline-row">
+                  <input id="hue-api-token" name="hue_api_token" data-config-key="hue_api_token" type="text" placeholder="Paste application key">
+                  <button id="create-token" type="button" class="button-secondary">Create Token</button>
+                </div>
+                <div id="token-feedback" class="feedback">Press the bridge button, then click Create Token.</div>
               </div>
               <div class="field">
                 <label for="hue-contact-id">Hue Contact ID</label>
                 <div class="inline-row">
-                  <input id="hue-contact-id" type="text" placeholder="contact resource id">
+                  <input id="hue-contact-id" name="hue_contact_id" data-config-key="hue_contact_id" type="text" placeholder="contact resource id">
                   <button type="button" class="button-secondary" data-discover-target="contact-results">Discover Contacts</button>
                 </div>
                 <div id="contact-results" class="mock-results" data-input-target="hue-contact-id">
@@ -395,7 +431,7 @@ INDEX_HTML = """<!DOCTYPE html>
               <div class="field">
                 <label for="hue-button-id">Hue Button ID</label>
                 <div class="inline-row">
-                  <input id="hue-button-id" type="text" placeholder="button resource id">
+                  <input id="hue-button-id" name="hue_button_id" data-config-key="hue_button_id" type="text" placeholder="button resource id">
                   <button type="button" class="button-secondary" data-discover-target="button-results">Discover Buttons</button>
                 </div>
                 <div id="button-results" class="mock-results" data-input-target="hue-button-id">
@@ -413,7 +449,7 @@ INDEX_HTML = """<!DOCTYPE html>
               <div class="field">
                 <label for="pixoo-host">Pixoo Host</label>
                 <div class="inline-row">
-                  <input id="pixoo-host" type="text" placeholder="10.0.0.47">
+                  <input id="pixoo-host" name="pixoo_host" data-config-key="pixoo_host" type="text" placeholder="10.0.0.47">
                   <button type="button" class="button-secondary" data-live-discover="pixoo-results" data-live-discover-url="/api/discover/pixoo">Discover Pixoo</button>
                 </div>
                 <div id="pixoo-results" class="mock-results" data-input-target="pixoo-host"></div>
@@ -422,16 +458,16 @@ INDEX_HTML = """<!DOCTYPE html>
           </section>
 
           <div class="actions">
-            <button type="button" class="button-primary">Save Settings</button>
-            <button type="button" class="button-ghost">Reset</button>
-            <span class="footnote">Settings persistence wiring coming next.</span>
+            <button id="save-settings" type="button" class="button-primary">Save Settings</button>
+            <button id="reset-settings" type="button" class="button-ghost">Reset</button>
+            <span id="save-feedback" class="feedback">Ready.</span>
           </div>
         </div>
 
         <aside>
           <section class="aside-card">
             <h3>What this mock demonstrates</h3>
-            <p>The final UI will load the current JSON config, allow discovery, and save directly through the existing API. This page only previews the interaction model and visual language.</p>
+            <p>The page now loads and saves the current JSON config directly through the API. Discovery for Hue Bridges and Pixoo devices is live, while contact and button discovery remains mocked for now.</p>
           </section>
           <section class="aside-card">
             <h3>Planned discovery flow</h3>
@@ -450,6 +486,81 @@ INDEX_HTML = """<!DOCTYPE html>
     const discoverButtons = document.querySelectorAll('[data-discover-target]');
     const liveDiscoverButtons = document.querySelectorAll('[data-live-discover]');
     const resultPanels = document.querySelectorAll('.mock-results');
+    const configInputs = document.querySelectorAll('[data-config-key]');
+    const runtimeStatus = document.getElementById('runtime-status');
+    const saveButton = document.getElementById('save-settings');
+    const resetButton = document.getElementById('reset-settings');
+    const feedback = document.getElementById('save-feedback');
+    const createTokenButton = document.getElementById('create-token');
+    const tokenInput = document.getElementById('hue-api-token');
+    const hueBaseUrlInput = document.getElementById('hue-base-url');
+    const tokenFeedback = document.getElementById('token-feedback');
+
+    function setFeedback(message, kind = '') {
+      feedback.textContent = message;
+      feedback.className = kind ? 'feedback ' + kind : 'feedback';
+    }
+
+    function setTokenFeedback(message, kind = '') {
+      tokenFeedback.textContent = message;
+      tokenFeedback.className = kind ? 'feedback ' + kind : 'feedback';
+    }
+
+    function setRuntimeStatus(configured, running) {
+      runtimeStatus.className = '';
+      if (running) {
+        runtimeStatus.textContent = 'Running';
+        runtimeStatus.classList.add('status-running');
+        return;
+      }
+      if (configured) {
+        runtimeStatus.textContent = 'Configured but stopped';
+        runtimeStatus.classList.add('status-error');
+        return;
+      }
+      runtimeStatus.textContent = 'Waiting for configuration';
+      runtimeStatus.classList.add('status-waiting');
+    }
+
+    function setBusyState(isBusy, label = 'Save Settings') {
+      saveButton.disabled = isBusy;
+      resetButton.disabled = isBusy;
+      saveButton.textContent = isBusy ? label : 'Save Settings';
+    }
+
+    function collectConfig() {
+      const payload = {};
+      configInputs.forEach((input) => {
+        payload[input.dataset.configKey] = input.value.trim();
+      });
+      return payload;
+    }
+
+    function applyConfig(config) {
+      configInputs.forEach((input) => {
+        input.value = config[input.dataset.configKey] || '';
+      });
+    }
+
+    async function loadStatus() {
+      const response = await fetch('/api/status');
+      if (!response.ok) {
+        throw new Error('Unable to load status');
+      }
+      const status = await response.json();
+      setRuntimeStatus(status.configured, status.running);
+      return status;
+    }
+
+    async function loadConfig() {
+      const response = await fetch('/api/config');
+      if (!response.ok) {
+        throw new Error('Unable to load configuration');
+      }
+      const config = await response.json();
+      applyConfig(config);
+      return config;
+    }
 
     function closeOtherPanels(openPanelId) {
       resultPanels.forEach((panel) => {
@@ -530,6 +641,88 @@ INDEX_HTML = """<!DOCTYPE html>
         }
       });
     });
+
+    saveButton.addEventListener('click', async () => {
+      setBusyState(true, 'Saving...');
+      setFeedback('Saving settings...');
+      try {
+        const response = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectConfig()),
+        });
+        if (!response.ok) {
+          throw new Error('Unable to save settings');
+        }
+        const payload = await response.json();
+        applyConfig(payload.config || {});
+        setRuntimeStatus(payload.configured, payload.running);
+        setFeedback('Settings saved.', 'success');
+      } catch (error) {
+        setFeedback('Unable to save settings.', 'error');
+      } finally {
+        setBusyState(false);
+      }
+    });
+
+    createTokenButton.addEventListener('click', async () => {
+      const hueBaseUrl = hueBaseUrlInput.value.trim();
+      if (!hueBaseUrl) {
+        setTokenFeedback('Enter a Hue Base URL first.', 'error');
+        return;
+      }
+
+      createTokenButton.disabled = true;
+      createTokenButton.textContent = 'Creating...';
+      setTokenFeedback('Press the bridge button, then wait for the token response...');
+      try {
+        const response = await fetch('/api/hue/create-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hue_base_url: hueBaseUrl }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || 'Unable to create token');
+        }
+        tokenInput.value = payload.token || '';
+        setTokenFeedback('Hue API token created. Save settings to persist it.', 'success');
+      } catch (error) {
+        setTokenFeedback(error.message || 'Unable to create Hue API token.', 'error');
+      } finally {
+        createTokenButton.disabled = false;
+        createTokenButton.textContent = 'Create Token';
+      }
+    });
+
+    resetButton.addEventListener('click', async () => {
+      setBusyState(true, 'Loading...');
+      setFeedback('Reloading saved settings...');
+      try {
+        await loadConfig();
+        await loadStatus();
+        setFeedback('Reloaded saved settings.');
+      } catch (error) {
+        setFeedback('Unable to reload saved settings.', 'error');
+      } finally {
+        setBusyState(false);
+      }
+    });
+
+    (async () => {
+      setBusyState(true, 'Loading...');
+      setFeedback('Loading configuration...');
+      try {
+        await loadConfig();
+        await loadStatus();
+        setFeedback('Configuration loaded.');
+      } catch (error) {
+        setRuntimeStatus(false, false);
+        setFeedback('Unable to load configuration.', 'error');
+      } finally {
+        setBusyState(false);
+      }
+    })();
   </script>
 </body>
 </html>
@@ -570,6 +763,15 @@ class PixooDevicePayload(BaseModel):
     device_id: str
     device_mac: str
     hardware: str
+
+
+class CreateHueTokenPayload(BaseModel):
+    hue_base_url: str = ""
+
+
+class HueTokenResponse(BaseModel):
+    token: str
+    clientkey: str = ""
 
 
 class MailboxRuntimeManager:
@@ -699,6 +901,16 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
     async def get_pixoo_devices() -> list[PixooDevicePayload]:
         devices = await discover_pixoo_devices()
         return [PixooDevicePayload(**device) for device in devices]
+
+    @app.post("/api/hue/create-token")
+    async def post_hue_create_token(
+        payload: CreateHueTokenPayload,
+    ) -> HueTokenResponse:
+        try:
+            created = await create_hue_application_key(payload.hue_base_url.strip())
+        except HueTokenCreationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return HueTokenResponse(**created)
 
     return app
 

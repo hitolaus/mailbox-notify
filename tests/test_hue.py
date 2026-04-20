@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from aiohue.v2.controllers.events import EventType
 
 from cli.mock_hue_bridge import BUTTON_ID, CONTACT_ID, MockHueBridgeServer
-from mailbox_notify.hue import AioHueClient, ConfigurableHueBridge
+from mailbox_notify.hue import (
+    AioHueClient,
+    ConfigurableHueBridge,
+    HueTokenCreationError,
+    create_hue_application_key,
+)
 from mailbox_notify.state import HueEventType
 
 
@@ -78,6 +84,75 @@ class ConfigurableHueBridgeTests(unittest.TestCase):
         bridge = ConfigurableHueBridge("http://127.0.0.1:8000", "token")
 
         self.assertEqual(bridge.host, "127.0.0.1:8000")
+
+
+class HueTokenCreationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_hue_application_key_returns_token(self) -> None:
+        payload = [{"success": {"username": "token-123", "clientkey": "client-456"}}]
+
+        class FakeResponse:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self) -> None:
+                return None
+
+            async def json(self):
+                return payload
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def post(self, url, json, ssl):
+                return FakeResponse()
+
+        with patch(
+            "mailbox_notify.hue.aiohttp.ClientSession", return_value=FakeSession()
+        ):
+            created = await create_hue_application_key("https://10.0.0.20")
+
+        self.assertEqual(created, {"token": "token-123", "clientkey": "client-456"})
+
+    async def test_create_hue_application_key_surfaces_bridge_error(self) -> None:
+        payload = [{"error": {"description": "link button not pressed"}}]
+
+        class FakeResponse:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self) -> None:
+                return None
+
+            async def json(self):
+                return payload
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def post(self, url, json, ssl):
+                return FakeResponse()
+
+        with patch(
+            "mailbox_notify.hue.aiohttp.ClientSession", return_value=FakeSession()
+        ):
+            with self.assertRaises(HueTokenCreationError) as error:
+                await create_hue_application_key("https://10.0.0.20")
+
+        self.assertEqual(str(error.exception), "link button not pressed")
 
 
 class HueClientMappingTests(unittest.TestCase):

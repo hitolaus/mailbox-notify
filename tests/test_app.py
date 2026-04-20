@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from mailbox_notify.app import create_app, main, run_mailbox_runtime, serve
 from mailbox_notify.config import Config, default_config, load_config
-from mailbox_notify.hue import button_pressed, mail_detected
+from mailbox_notify.hue import HueTokenCreationError, button_pressed, mail_detected
 from mailbox_notify.state import MailboxStateMachine
 
 
@@ -152,6 +152,12 @@ class AppApiTests(unittest.TestCase):
             self.assertIn("Mailbox Notify", root.text)
             self.assertIn("Discover Bridges", root.text)
             self.assertIn("Discover Pixoo", root.text)
+            self.assertIn("/api/config", root.text)
+            self.assertIn("/api/status", root.text)
+            self.assertIn("Save Settings", root.text)
+            self.assertIn("Create Token", root.text)
+            self.assertIn('type="text"', root.text)
+            self.assertIn("/api/hue/create-token", root.text)
             self.assertIn("/api/discover/pixoo", root.text)
             self.assertIn("Discover Contacts", root.text)
             self.assertIn("Discover Buttons", root.text)
@@ -238,3 +244,49 @@ class AppApiTests(unittest.TestCase):
                     }
                 ],
             )
+
+    def test_hue_create_token_endpoint_returns_token(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with (
+                patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager),
+                patch(
+                    "mailbox_notify.app.create_hue_application_key",
+                    new=AsyncMock(
+                        return_value={"token": "token-123", "clientkey": "client-456"}
+                    ),
+                ),
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/hue/create-token",
+                        json={"hue_base_url": "https://10.0.0.20"},
+                    )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json(), {"token": "token-123", "clientkey": "client-456"}
+            )
+
+    def test_hue_create_token_endpoint_returns_bridge_error(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with (
+                patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager),
+                patch(
+                    "mailbox_notify.app.create_hue_application_key",
+                    new=AsyncMock(
+                        side_effect=HueTokenCreationError("link button not pressed")
+                    ),
+                ),
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/hue/create-token",
+                        json={"hue_base_url": "https://10.0.0.20"},
+                    )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json(), {"detail": "link button not pressed"})

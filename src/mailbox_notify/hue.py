@@ -31,6 +31,10 @@ class HueClient(Protocol):
     def events(self) -> AsyncIterator[HueEvent]: ...
 
 
+class HueTokenCreationError(RuntimeError):
+    """Raised when creating a Hue application key fails."""
+
+
 async def discover_hue_bridges() -> list[dict[str, str]]:
     async with aiohttp.ClientSession() as session:
         async with session.get(HUE_DISCOVERY_URL) as response:
@@ -52,6 +56,40 @@ async def discover_hue_bridges() -> list[dict[str, str]]:
         )
 
     return bridges
+
+
+async def create_hue_application_key(
+    base_url: str, device_name: str = "mailbox-notify#web-ui"
+) -> dict[str, str]:
+    parsed = urlparse(base_url)
+    scheme = parsed.scheme or "https"
+    host = parsed.netloc or parsed.path
+    if not host:
+        raise HueTokenCreationError("Enter a valid Hue Base URL first.")
+
+    api_url = f"{scheme}://{host}/api"
+    payload = {"devicetype": device_name, "generateclientkey": True}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(api_url, json=payload, ssl=False) as response:
+            response.raise_for_status()
+            body = await response.json()
+
+    if not isinstance(body, list) or not body:
+        raise HueTokenCreationError("Unexpected response from Hue Bridge.")
+
+    first = body[0]
+    success = first.get("success")
+    if success:
+        username = str(success.get("username", "")).strip()
+        if not username:
+            raise HueTokenCreationError("Hue Bridge returned an empty application key.")
+        clientkey = str(success.get("clientkey", "")).strip()
+        return {"token": username, "clientkey": clientkey}
+
+    error = first.get("error", {})
+    description = str(error.get("description", "Unknown Hue Bridge error.")).strip()
+    raise HueTokenCreationError(description)
 
 
 class ConfigurableHueBridge(HueBridgeV2):
