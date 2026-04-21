@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
 
 
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.json"
+CONFIG_PATH_ENV = "MAILBOX_NOTIFY_CONFIG_PATH"
+
+
+def default_config_path() -> Path:
+    configured_path = os.environ.get(CONFIG_PATH_ENV, "").strip()
+    if configured_path:
+        return Path(configured_path).expanduser()
+    return Path(__file__).resolve().parents[2] / "config.json"
+
+
+CONFIG_PATH = default_config_path()
 
 
 @dataclass(frozen=True)

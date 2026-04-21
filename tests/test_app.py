@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -9,9 +10,13 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from mailbox_notify.app import (
+    HOST_ENV,
+    PORT_ENV,
     MailboxRuntime,
     MailboxRuntimeError,
     create_app,
+    default_server_host,
+    default_server_port,
     main,
     run_mailbox_runtime,
     serve,
@@ -143,6 +148,30 @@ class AppRuntimeTests(unittest.TestCase):
             main()
 
         run_mock.assert_called_once()
+
+    def test_default_server_settings_use_env_overrides(self) -> None:
+        with patch.dict(
+            os.environ,
+            {HOST_ENV: "0.0.0.0", PORT_ENV: "9000"},
+            clear=False,
+        ):
+            self.assertEqual(default_server_host(), "0.0.0.0")
+            self.assertEqual(default_server_port(), 9000)
+
+    def test_main_passes_configured_host_and_port_to_uvicorn(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {HOST_ENV: "0.0.0.0", PORT_ENV: "9000"},
+                clear=False,
+            ),
+            patch("mailbox_notify.app.uvicorn.run") as run_mock,
+        ):
+            main()
+
+        _, kwargs = run_mock.call_args
+        self.assertEqual(kwargs["host"], "0.0.0.0")
+        self.assertEqual(kwargs["port"], 9000)
 
 
 class MailboxRuntimeTests(unittest.IsolatedAsyncioTestCase):

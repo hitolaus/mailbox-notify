@@ -32,6 +32,44 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Open `http://127.0.0.1:8000/`
 - The app creates `config.json` in the project root on first start
 
+## Linux Docker Deployment
+
+- Production deployment is Linux-only via Docker Compose in `compose.yml`.
+- This setup uses `network_mode: host` so the app binds directly on the Linux host network.
+- Runtime data is stored in `./data/` in the cloned repo.
+
+### Requirements
+
+- Docker Engine with the Compose plugin installed
+
+### Start
+
+- Clone the repo and enter it.
+- Start the service: `docker compose up -d --build`
+- Open `http://<linux-host-ip>:8000/`
+- Persistent files are created in `./data/`:
+- `config.json`
+- `state.json`
+
+### Update
+
+- Pull the latest changes: `git pull`
+- Rebuild and restart: `docker compose up -d --build`
+
+### Stop
+
+- Stop the service: `docker compose down`
+
+### Notes
+
+- The container sets:
+- `MAILBOX_NOTIFY_CONFIG_PATH=/data/config.json`
+- `MAILBOX_NOTIFY_STATE_PATH=/data/state.json`
+- `MAILBOX_NOTIFY_HOST=0.0.0.0`
+- `MAILBOX_NOTIFY_PORT=8000`
+- Linux host networking is the supported deployment mode.
+- For stable long-running operation, save explicit `hue_base_url` and `pixoo_host` values once initial setup is complete.
+
 ## Intended structure
 
 - `src/mailbox_notify/` for the application package.

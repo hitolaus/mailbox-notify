@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -15,8 +16,8 @@ from pydantic import BaseModel
 import uvicorn
 
 from .config import (
-    CONFIG_PATH,
     Config,
+    default_config_path,
     ensure_config_file,
     is_config_complete,
     load_config,
@@ -36,7 +37,7 @@ from .hue import (
 )
 from .pixoo import PixooDisplay, create_pixoo_display, discover_pixoo_devices
 from .runtime_state import (
-    STATE_PATH,
+    default_state_path,
     ensure_runtime_state_file,
     save_runtime_state,
     updated_runtime_state,
@@ -48,6 +49,8 @@ LOGGER = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).with_name("static")
 INDEX_HTML_PATH = STATIC_DIR / "index.html"
+HOST_ENV = "MAILBOX_NOTIFY_HOST"
+PORT_ENV = "MAILBOX_NOTIFY_PORT"
 
 
 class RuntimeManager(Protocol):
@@ -122,9 +125,7 @@ class MailboxRuntimeError(RuntimeError):
 
 
 class MailboxRuntime:
-    def __init__(
-        self, config: Config, display: PixooDisplay, state_path: Path = STATE_PATH
-    ) -> None:
+    def __init__(self, config: Config, display: PixooDisplay, state_path: Path) -> None:
         self.config = config
         self.display = display
         self._state_path = state_path
@@ -178,7 +179,7 @@ class MailboxRuntime:
 
 
 class MailboxRuntimeManager:
-    def __init__(self, config_path: Path, state_path: Path = STATE_PATH) -> None:
+    def __init__(self, config_path: Path, state_path: Path) -> None:
         self._config_path = config_path
         self._state_path = state_path
         self._task: asyncio.Task[None] | None = None
@@ -278,16 +279,32 @@ async def serve(
 
 async def run_mailbox_runtime(config: Config) -> None:
     display = await create_pixoo_display(config.pixoo_host)
-    runtime = MailboxRuntime(config, display)
+    runtime = MailboxRuntime(config, display, default_state_path())
     await runtime.run()
 
 
-def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
+def default_server_host() -> str:
+    return os.environ.get(HOST_ENV, "127.0.0.1").strip() or "127.0.0.1"
+
+
+def default_server_port() -> int:
+    configured_port = os.environ.get(PORT_ENV, "8000").strip()
+    return int(configured_port) if configured_port else 8000
+
+
+def create_app(
+    config_path: Path | None = None, state_path: Path | None = None
+) -> FastAPI:
+    resolved_config_path = default_config_path() if config_path is None else config_path
+    resolved_state_path = default_state_path() if state_path is None else state_path
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        ensure_config_file(config_path)
-        ensure_runtime_state_file(STATE_PATH)
-        app.state.runtime_manager = MailboxRuntimeManager(config_path, STATE_PATH)
+        ensure_config_file(resolved_config_path)
+        ensure_runtime_state_file(resolved_state_path)
+        app.state.runtime_manager = MailboxRuntimeManager(
+            resolved_config_path, resolved_state_path
+        )
         await app.state.runtime_manager.start()
         try:
             yield
@@ -303,12 +320,12 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
 
     @app.get("/api/config")
     async def get_config() -> ConfigPayload:
-        return ConfigPayload(**load_config(config_path).__dict__)
+        return ConfigPayload(**load_config(resolved_config_path).__dict__)
 
     @app.put("/api/config")
     async def put_config(payload: ConfigPayload) -> dict[str, object]:
         config = payload.to_config()
-        save_config(config, config_path)
+        save_config(config, resolved_config_path)
         await app.state.runtime_manager.restart(config)
         return {"config": payload.model_dump(), **app.state.runtime_manager.status()}
 
@@ -382,7 +399,11 @@ app = create_app()
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(
+        create_app(),
+        host=default_server_host(),
+        port=default_server_port(),
+    )
 
 
 if __name__ == "__main__":

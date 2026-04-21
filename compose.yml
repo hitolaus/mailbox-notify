@@ -1,0 +1,14 @@
+services:
+  mailbox-notify:
+    build:
+      context: .
+    container_name: mailbox-notify
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MAILBOX_NOTIFY_CONFIG_PATH: /data/config.json
+      MAILBOX_NOTIFY_STATE_PATH: /data/state.json
+      MAILBOX_NOTIFY_HOST: 0.0.0.0
+      MAILBOX_NOTIFY_PORT: "8000"
+    volumes:
+      - ./data:/data

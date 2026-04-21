@@ -5,10 +5,21 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
 
 
-STATE_PATH = Path(__file__).resolve().parents[2] / "state.json"
+STATE_PATH_ENV = "MAILBOX_NOTIFY_STATE_PATH"
+
+
+def default_state_path() -> Path:
+    configured_path = os.environ.get(STATE_PATH_ENV, "").strip()
+    if configured_path:
+        return Path(configured_path).expanduser()
+    return Path(__file__).resolve().parents[2] / "state.json"
+
+
+STATE_PATH = default_state_path()
 
 
 @dataclass(frozen=True)
