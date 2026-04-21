@@ -101,7 +101,8 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .shell {
       width: min(960px, calc(100vw - 32px));
-      margin: 48px auto;
+      margin: 0 auto;
+      padding: 48px 0;
     }
 
     .hero {
@@ -346,7 +347,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
     @media (max-width: 860px) {
       .shell {
-        margin: 20px auto;
+        padding: 20px 0;
       }
 
       .hero {
