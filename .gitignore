@@ -8,3 +8,4 @@ build/
 .idea/
 .air/
 config.json
+state.json

@@ -26,13 +26,21 @@ from .hue import (
     HueClient,
     HueDiscoveryError,
     HueTokenCreationError,
+    button_pressed,
     create_hue_application_key,
     discover_hue_buttons,
     discover_hue_bridges,
     discover_hue_contacts,
+    mail_detected,
 )
 from .pixoo import PixooDisplay, create_pixoo_display, discover_pixoo_devices
-from .state import MailboxStateMachine
+from .runtime_state import (
+    STATE_PATH,
+    ensure_runtime_state_file,
+    save_runtime_state,
+    updated_runtime_state,
+)
+from .state import HueEventType, MailboxStateMachine
 
 
 LOGGER = logging.getLogger(__name__)
@@ -56,6 +64,10 @@ INDEX_HTML = """<!DOCTYPE html>
       --accent-soft: rgba(37, 99, 235, 0.12);
       --input: rgba(248, 250, 252, 0.92);
       --shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
+      --control-height: 52px;
+      --button-width-primary: 176px;
+      --button-width-secondary: 172px;
+      --button-width-compact: 92px;
     }
 
     @media (prefers-color-scheme: dark) {
@@ -129,39 +141,6 @@ INDEX_HTML = """<!DOCTYPE html>
       line-height: 1.6;
     }
 
-    .status-chip {
-      padding: 12px 14px;
-      border: 1px solid var(--panel-border);
-      border-radius: 18px;
-      background: var(--panel);
-      box-shadow: var(--shadow);
-      min-width: 180px;
-      backdrop-filter: blur(18px);
-    }
-
-    .status-chip strong {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 13px;
-    }
-
-    .status-chip span {
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .status-chip span.status-running {
-      color: #16a34a;
-    }
-
-    .status-chip span.status-waiting {
-      color: #d97706;
-    }
-
-    .status-chip span.status-error {
-      color: #dc2626;
-    }
-
     .panel {
       border: 1px solid var(--panel-border);
       border-radius: 28px;
@@ -169,12 +148,6 @@ INDEX_HTML = """<!DOCTYPE html>
       box-shadow: var(--shadow);
       backdrop-filter: blur(18px);
       padding: 28px;
-    }
-
-    .panel-grid {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 28px;
     }
 
     .section + .section {
@@ -212,7 +185,8 @@ INDEX_HTML = """<!DOCTYPE html>
 
     input {
       width: 100%;
-      padding: 14px 16px;
+      height: var(--control-height);
+      padding: 0 16px;
       border-radius: 16px;
       border: 1px solid var(--panel-border);
       background: var(--input);
@@ -239,10 +213,13 @@ INDEX_HTML = """<!DOCTYPE html>
       appearance: none;
       border: 0;
       border-radius: 14px;
-      padding: 13px 16px;
+      height: var(--control-height);
+      padding: 0 16px;
       font: inherit;
       font-weight: 600;
       cursor: pointer;
+      white-space: nowrap;
+      text-align: center;
       transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
     }
 
@@ -264,6 +241,18 @@ INDEX_HTML = """<!DOCTYPE html>
       background: transparent;
       color: var(--muted);
       border: 1px solid var(--panel-border);
+    }
+
+    .button-size-primary {
+      width: var(--button-width-primary);
+    }
+
+    .button-size-secondary {
+      width: var(--button-width-secondary);
+    }
+
+    .button-size-compact {
+      width: var(--button-width-compact);
     }
 
     .mock-results {
@@ -369,15 +358,17 @@ INDEX_HTML = """<!DOCTYPE html>
         border-radius: 22px;
       }
 
-      .panel-grid {
-        grid-template-columns: 1fr;
-      }
-
       .inline-row {
         grid-template-columns: 1fr;
       }
 
       button {
+        width: 100%;
+      }
+
+      .button-size-primary,
+      .button-size-secondary,
+      .button-size-compact {
         width: 100%;
       }
     }
@@ -391,90 +382,73 @@ INDEX_HTML = """<!DOCTYPE html>
         <h1>Configure your mailbox display</h1>
         <p>Mock settings interface for the next step of the app. Discovery buttons use placeholder data for now so the layout and interaction flow can be reviewed before wiring the backend.</p>
       </div>
-      <aside class="status-chip">
-        <strong>Runtime</strong>
-        <span id="runtime-status">Loading configuration...</span>
-      </aside>
     </section>
 
     <section class="panel">
-      <div class="panel-grid">
-        <div>
-          <section class="section">
-            <h2 class="section-title">Hue Bridge</h2>
-            <p class="section-copy">Point the runtime at a Hue Bridge or the local mock bridge, then pick the contact sensor and clear button you want to use.</p>
-            <div class="field-grid">
-              <div class="field">
-                <label for="hue-base-url">Hue Base URL</label>
-                <div class="inline-row">
-                  <input id="hue-base-url" name="hue_base_url" data-config-key="hue_base_url" type="text" placeholder="http://127.0.0.1:8000">
-                  <button type="button" class="button-secondary" data-live-discover="hue-bridge-results" data-live-discover-url="/api/discover/hue-bridges">Discover Bridges</button>
-                </div>
-                <div id="hue-bridge-results" class="mock-results" data-input-target="hue-base-url"></div>
-              </div>
-              <div class="field">
-                <label for="hue-api-token">Hue API Token</label>
-                <div class="inline-row">
-                  <input id="hue-api-token" name="hue_api_token" data-config-key="hue_api_token" type="text" placeholder="Paste application key">
-                  <button id="create-token" type="button" class="button-secondary">Create Token</button>
-                </div>
-                <div id="token-feedback" class="feedback">Press the bridge button, then click Create Token.</div>
-              </div>
-              <div class="field">
-                <label for="hue-contact-id">Hue Contact ID</label>
-                <div class="inline-row">
-                  <input id="hue-contact-id" name="hue_contact_id" data-config-key="hue_contact_id" type="text" placeholder="contact resource id">
-                  <button type="button" class="button-secondary" data-live-discover="contact-results" data-live-discover-url="/api/discover/hue-contacts">Discover Contacts</button>
-                </div>
-                <div id="contact-results" class="mock-results" data-input-target="hue-contact-id"></div>
-              </div>
-              <div class="field">
-                <label for="hue-button-id">Hue Button ID</label>
-                <div class="inline-row">
-                  <input id="hue-button-id" name="hue_button_id" data-config-key="hue_button_id" type="text" placeholder="button resource id">
-                  <button type="button" class="button-secondary" data-live-discover="button-results" data-live-discover-url="/api/discover/hue-buttons">Discover Buttons</button>
-                </div>
-                <div id="button-results" class="mock-results" data-input-target="hue-button-id"></div>
+      <section class="section">
+        <h2 class="section-title">Hue Bridge</h2>
+        <p class="section-copy">Point the runtime at a Hue Bridge or the local mock bridge, then pick the contact sensor and clear button you want to use.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="hue-base-url">Hue Base URL</label>
+            <div class="inline-row">
+              <input id="hue-base-url" name="hue_base_url" data-config-key="hue_base_url" type="text" placeholder="http://127.0.0.1:8000">
+              <button type="button" class="button-secondary button-size-secondary" data-live-discover="hue-bridge-results" data-live-discover-url="/api/discover/hue-bridges">Discover Bridges</button>
+            </div>
+            <div id="hue-bridge-results" class="mock-results" data-input-target="hue-base-url"></div>
+          </div>
+          <div class="field">
+            <label for="hue-api-token">Hue API Token</label>
+            <div class="inline-row">
+              <input id="hue-api-token" name="hue_api_token" data-config-key="hue_api_token" type="text" placeholder="Paste application key">
+              <button id="create-token" type="button" class="button-secondary button-size-secondary">Create Token</button>
+            </div>
+            <div id="token-feedback" class="feedback">Press the bridge button, then click Create Token.</div>
+          </div>
+          <div class="field">
+            <label for="hue-contact-id">Hue Contact ID</label>
+            <div class="inline-row">
+              <input id="hue-contact-id" name="hue_contact_id" data-config-key="hue_contact_id" type="text" placeholder="contact resource id">
+              <div class="inline-row">
+                <button type="button" class="button-secondary button-size-secondary" data-live-discover="contact-results" data-live-discover-url="/api/discover/hue-contacts">Discover Contacts</button>
+                <button id="test-contact" type="button" class="button-ghost button-size-compact" disabled>Test</button>
               </div>
             </div>
-          </section>
-
-          <section class="section">
-            <h2 class="section-title">Pixoo Display</h2>
-            <p class="section-copy">Enter a Pixoo IP manually or use discovery to select one of the devices found on the local network.</p>
-            <div class="field-grid">
-              <div class="field">
-                <label for="pixoo-host">Pixoo Host</label>
-                <div class="inline-row">
-                  <input id="pixoo-host" name="pixoo_host" data-config-key="pixoo_host" type="text" placeholder="10.0.0.47">
-                  <button type="button" class="button-secondary" data-live-discover="pixoo-results" data-live-discover-url="/api/discover/pixoo">Discover Pixoo</button>
-                </div>
-                <div id="pixoo-results" class="mock-results" data-input-target="pixoo-host"></div>
+            <div id="contact-results" class="mock-results" data-input-target="hue-contact-id"></div>
+          </div>
+          <div class="field">
+            <label for="hue-button-id">Hue Button ID</label>
+            <div class="inline-row">
+              <input id="hue-button-id" name="hue_button_id" data-config-key="hue_button_id" type="text" placeholder="button resource id">
+              <div class="inline-row">
+                <button type="button" class="button-secondary button-size-secondary" data-live-discover="button-results" data-live-discover-url="/api/discover/hue-buttons">Discover Buttons</button>
+                <button id="test-button" type="button" class="button-ghost button-size-compact" disabled>Test</button>
               </div>
             </div>
-          </section>
-
-          <div class="actions">
-            <button id="save-settings" type="button" class="button-primary">Save Settings</button>
-            <button id="reset-settings" type="button" class="button-ghost">Reset</button>
-            <span id="save-feedback" class="feedback">Ready.</span>
+            <div id="button-results" class="mock-results" data-input-target="hue-button-id"></div>
           </div>
         </div>
+      </section>
 
-        <aside>
-          <section class="aside-card">
-            <h3>What this mock demonstrates</h3>
-            <p>The page now loads and saves the current JSON config directly through the API. Discovery for Hue Bridges, Pixoo devices, contacts, and buttons is live.</p>
-          </section>
-          <section class="aside-card">
-            <h3>Planned discovery flow</h3>
-            <ul>
-              <li>Pixoo discovery will list LAN devices and let you fill the host field.</li>
-              <li>Hue discovery will query the configured bridge and list contact sensors and buttons.</li>
-              <li>Saving settings will immediately restart the runtime with the new configuration.</li>
-            </ul>
-          </section>
-        </aside>
+      <section class="section">
+        <h2 class="section-title">Pixoo Display</h2>
+        <p class="section-copy">Enter a Pixoo IP manually or use discovery to select one of the devices found on the local network.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="pixoo-host">Pixoo Host</label>
+            <div class="inline-row">
+              <input id="pixoo-host" name="pixoo_host" data-config-key="pixoo_host" type="text" placeholder="10.0.0.47">
+              <button type="button" class="button-secondary button-size-secondary" data-live-discover="pixoo-results" data-live-discover-url="/api/discover/pixoo">Discover Pixoo</button>
+            </div>
+            <div id="pixoo-results" class="mock-results" data-input-target="pixoo-host"></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button id="save-settings" type="button" class="button-primary button-size-primary">Save Settings</button>
+        <button id="reset-settings" type="button" class="button-ghost button-size-compact">Reset</button>
+        <span id="save-feedback" class="feedback">Ready.</span>
       </div>
     </section>
   </main>
@@ -483,14 +457,17 @@ INDEX_HTML = """<!DOCTYPE html>
     const liveDiscoverButtons = document.querySelectorAll('[data-live-discover]');
     const resultPanels = document.querySelectorAll('.mock-results');
     const configInputs = document.querySelectorAll('[data-config-key]');
-    const runtimeStatus = document.getElementById('runtime-status');
     const saveButton = document.getElementById('save-settings');
     const resetButton = document.getElementById('reset-settings');
     const feedback = document.getElementById('save-feedback');
     const createTokenButton = document.getElementById('create-token');
     const tokenInput = document.getElementById('hue-api-token');
     const hueBaseUrlInput = document.getElementById('hue-base-url');
+    const contactIdInput = document.getElementById('hue-contact-id');
+    const buttonIdInput = document.getElementById('hue-button-id');
     const tokenFeedback = document.getElementById('token-feedback');
+    const testContactButton = document.getElementById('test-contact');
+    const testButtonButton = document.getElementById('test-button');
 
     function setFeedback(message, kind = '') {
       feedback.textContent = message;
@@ -500,22 +477,6 @@ INDEX_HTML = """<!DOCTYPE html>
     function setTokenFeedback(message, kind = '') {
       tokenFeedback.textContent = message;
       tokenFeedback.className = kind ? 'feedback ' + kind : 'feedback';
-    }
-
-    function setRuntimeStatus(configured, running) {
-      runtimeStatus.className = '';
-      if (running) {
-        runtimeStatus.textContent = 'Running';
-        runtimeStatus.classList.add('status-running');
-        return;
-      }
-      if (configured) {
-        runtimeStatus.textContent = 'Configured but stopped';
-        runtimeStatus.classList.add('status-error');
-        return;
-      }
-      runtimeStatus.textContent = 'Waiting for configuration';
-      runtimeStatus.classList.add('status-waiting');
     }
 
     function setBusyState(isBusy, label = 'Save Settings') {
@@ -536,16 +497,12 @@ INDEX_HTML = """<!DOCTYPE html>
       configInputs.forEach((input) => {
         input.value = config[input.dataset.configKey] || '';
       });
+      updateTestButtons();
     }
 
-    async function loadStatus() {
-      const response = await fetch('/api/status');
-      if (!response.ok) {
-        throw new Error('Unable to load status');
-      }
-      const status = await response.json();
-      setRuntimeStatus(status.configured, status.running);
-      return status;
+    function updateTestButtons() {
+      testContactButton.disabled = !contactIdInput.value.trim();
+      testButtonButton.disabled = !buttonIdInput.value.trim();
     }
 
     async function loadConfig() {
@@ -658,11 +615,37 @@ INDEX_HTML = """<!DOCTYPE html>
               '</button>';
           }).join('');
           bindResultOptions(panel);
+          updateTestButtons();
         } catch (error) {
           panel.innerHTML = '<div class="footnote">' + (error.message || (isPixoo ? 'Unable to discover Pixoo devices right now.' : 'Unable to discover Hue resources right now.')) + '</div>';
         }
       });
     });
+
+    async function triggerInternalTest(url, successMessage) {
+      setFeedback('Triggering test...');
+      try {
+        const response = await fetch(url, { method: 'POST' });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.detail || 'Unable to trigger test');
+        }
+        setFeedback(successMessage, 'success');
+      } catch (error) {
+        setFeedback(error.message || 'Unable to trigger test.', 'error');
+      }
+    }
+
+    testContactButton.addEventListener('click', async () => {
+      await triggerInternalTest('/api/test/hue-contact', 'Triggered contact test event.');
+    });
+
+    testButtonButton.addEventListener('click', async () => {
+      await triggerInternalTest('/api/test/hue-button', 'Triggered button test event.');
+    });
+
+    contactIdInput.addEventListener('input', updateTestButtons);
+    buttonIdInput.addEventListener('input', updateTestButtons);
 
     saveButton.addEventListener('click', async () => {
       setBusyState(true, 'Saving...');
@@ -678,7 +661,6 @@ INDEX_HTML = """<!DOCTYPE html>
         }
         const payload = await response.json();
         applyConfig(payload.config || {});
-        setRuntimeStatus(payload.configured, payload.running);
         setFeedback('Settings saved.', 'success');
       } catch (error) {
         setFeedback('Unable to save settings.', 'error');
@@ -722,7 +704,6 @@ INDEX_HTML = """<!DOCTYPE html>
       setFeedback('Reloading saved settings...');
       try {
         await loadConfig();
-        await loadStatus();
         setFeedback('Reloaded saved settings.');
       } catch (error) {
         setFeedback('Unable to reload saved settings.', 'error');
@@ -736,12 +717,11 @@ INDEX_HTML = """<!DOCTYPE html>
       setFeedback('Loading configuration...');
       try {
         await loadConfig();
-        await loadStatus();
         setFeedback('Configuration loaded.');
       } catch (error) {
-        setRuntimeStatus(false, false);
         setFeedback('Unable to load configuration.', 'error');
       } finally {
+        updateTestButtons();
         setBusyState(false);
       }
     })();
@@ -757,6 +737,10 @@ class RuntimeManager(Protocol):
     async def stop(self) -> None: ...
 
     async def restart(self, config: Config | None = None) -> None: ...
+
+    async def trigger_contact_test(self) -> None: ...
+
+    async def trigger_button_test(self) -> None: ...
 
     def status(self) -> dict[str, bool]: ...
 
@@ -814,12 +798,75 @@ class HueTokenResponse(BaseModel):
     clientkey: str = ""
 
 
+class MailboxRuntimeError(RuntimeError):
+    """Raised when the mailbox runtime cannot handle a requested action."""
+
+
+class MailboxRuntime:
+    def __init__(
+        self, config: Config, display: PixooDisplay, state_path: Path = STATE_PATH
+    ) -> None:
+        self.config = config
+        self.display = display
+        self._state_path = state_path
+        persisted_state = ensure_runtime_state_file(state_path)
+        self.state_machine = MailboxStateMachine(
+            mail_present=persisted_state.mail_present
+        )
+        self._event_lock = asyncio.Lock()
+
+    async def run(self) -> None:
+        await self.sync_display_from_state()
+        while True:
+            hue_client = AioHueClient(
+                base_url=self.config.hue_base_url,
+                api_token=self.config.hue_api_token,
+                contact_id=self.config.hue_contact_id,
+                button_id=self.config.hue_button_id,
+            )
+            try:
+                await serve(
+                    hue_client, self.display, self.state_machine, self.handle_event
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                LOGGER.exception("Hue stream failed, reconnecting")
+                await asyncio.sleep(5)
+
+    async def sync_display_from_state(self) -> None:
+        async with self._event_lock:
+            if self.state_machine.mail_present:
+                await self.display.show_new_mail()
+            else:
+                await self.display.clear()
+
+    async def handle_event(self, event) -> None:
+        async with self._event_lock:
+            LOGGER.info("Received Hue event: %s", event.kind.name)
+            await self.state_machine.handle(event, self.display)
+            if event.kind in {HueEventType.MAIL_DETECTED, HueEventType.BUTTON_PRESSED}:
+                save_runtime_state(
+                    updated_runtime_state(self.state_machine.mail_present),
+                    self._state_path,
+                )
+
+    async def trigger_contact_test(self) -> None:
+        await self.handle_event(mail_detected())
+
+    async def trigger_button_test(self) -> None:
+        await self.handle_event(button_pressed())
+
+
 class MailboxRuntimeManager:
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, state_path: Path = STATE_PATH) -> None:
         self._config_path = config_path
+        self._state_path = state_path
         self._task: asyncio.Task[None] | None = None
+        self._runtime: MailboxRuntime | None = None
         self._lock = asyncio.Lock()
         self._config = ensure_config_file(config_path)
+        ensure_runtime_state_file(state_path)
 
     async def start(self) -> None:
         async with self._lock:
@@ -836,6 +883,28 @@ class MailboxRuntimeManager:
             await self._stop_locked()
             await self._start_locked(self._config)
 
+    async def trigger_contact_test(self) -> None:
+        async with self._lock:
+            if not self._config.hue_contact_id:
+                raise MailboxRuntimeError("Hue Contact ID is required before testing.")
+            runtime = self._runtime
+        if runtime is None:
+            raise MailboxRuntimeError(
+                "Runtime is not active. Save a complete configuration first."
+            )
+        await runtime.trigger_contact_test()
+
+    async def trigger_button_test(self) -> None:
+        async with self._lock:
+            if not self._config.hue_button_id:
+                raise MailboxRuntimeError("Hue Button ID is required before testing.")
+            runtime = self._runtime
+        if runtime is None:
+            raise MailboxRuntimeError(
+                "Runtime is not active. Save a complete configuration first."
+            )
+        await runtime.trigger_button_test()
+
     def status(self) -> dict[str, bool]:
         return {
             "configured": is_config_complete(self._config),
@@ -848,16 +917,21 @@ class MailboxRuntimeManager:
                 "Mailbox runtime not started because configuration is incomplete"
             )
             self._task = None
+            self._runtime = None
             return
         if self._task is not None and not self._task.done():
             return
-        self._task = asyncio.create_task(run_mailbox_runtime(config))
+        display = await create_pixoo_display(config.pixoo_host)
+        self._runtime = MailboxRuntime(config, display, self._state_path)
+        self._task = asyncio.create_task(self._runtime.run())
 
     async def _stop_locked(self) -> None:
         if self._task is None:
+            self._runtime = None
             return
         task = self._task
         self._task = None
+        self._runtime = None
         task.cancel()
         try:
             await task
@@ -869,41 +943,32 @@ async def serve(
     hue_client: HueClient,
     display: PixooDisplay,
     state_machine: MailboxStateMachine,
+    event_handler=None,
 ) -> None:
     await hue_client.connect()
     try:
         async for event in hue_client.events():
-            LOGGER.info("Received Hue event: %s", event.kind.name)
-            await state_machine.handle(event, display)
+            if event_handler is not None:
+                await event_handler(event)
+            else:
+                LOGGER.info("Received Hue event: %s", event.kind.name)
+                await state_machine.handle(event, display)
     finally:
         await hue_client.disconnect()
 
 
 async def run_mailbox_runtime(config: Config) -> None:
     display = await create_pixoo_display(config.pixoo_host)
-    state_machine = MailboxStateMachine()
-
-    while True:
-        hue_client = AioHueClient(
-            base_url=config.hue_base_url,
-            api_token=config.hue_api_token,
-            contact_id=config.hue_contact_id,
-            button_id=config.hue_button_id,
-        )
-        try:
-            await serve(hue_client, display, state_machine)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            LOGGER.exception("Hue stream failed, reconnecting")
-            await asyncio.sleep(5)
+    runtime = MailboxRuntime(config, display)
+    await runtime.run()
 
 
 def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         ensure_config_file(config_path)
-        app.state.runtime_manager = MailboxRuntimeManager(config_path)
+        ensure_runtime_state_file(STATE_PATH)
+        app.state.runtime_manager = MailboxRuntimeManager(config_path, STATE_PATH)
         await app.state.runtime_manager.start()
         try:
             yield
@@ -926,11 +991,6 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
         save_config(config, config_path)
         await app.state.runtime_manager.restart(config)
         return {"config": payload.model_dump(), **app.state.runtime_manager.status()}
-
-    @app.get("/api/status")
-    async def get_status() -> dict[str, bool]:
-        runtime_manager: RuntimeManager = app.state.runtime_manager
-        return runtime_manager.status()
 
     @app.get("/api/discover/hue-bridges")
     async def get_hue_bridges() -> list[HueBridgePayload]:
@@ -967,6 +1027,22 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
         except HueDiscoveryError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return [HueButtonPayload(**button) for button in buttons]
+
+    @app.post("/api/test/hue-contact")
+    async def post_test_hue_contact() -> dict[str, bool]:
+        try:
+            await app.state.runtime_manager.trigger_contact_test()
+        except MailboxRuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True}
+
+    @app.post("/api/test/hue-button")
+    async def post_test_hue_button() -> dict[str, bool]:
+        try:
+            await app.state.runtime_manager.trigger_button_test()
+        except MailboxRuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True}
 
     @app.post("/api/hue/create-token")
     async def post_hue_create_token(

@@ -49,6 +49,8 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - The app now uses a real Pixoo adapter built on the `pixoo` library.
 - The main process is a FastAPI server with a lightweight configuration page and JSON configuration API.
 - Configuration is stored in `config.json` and saving settings restarts the runtime immediately.
+- Mailbox runtime state is stored separately in `state.json` with `mail_present` and `last_updated`.
+- The configuration page no longer shows a separate runtime status badge.
 - The app logs each normalized Hue event when it is received.
 - The mock Hue Bridge is HTTP-only and serves both `/eventstream/clip/v2` and minimal `/clip/v2/resource` endpoints for local integration testing.
 
@@ -61,17 +63,25 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - `hue_button_id`: Hue `button` resource ID for the clear action.
 - `pixoo_host`: optional Pixoo64 host. If unset, the app auto-discovers Pixoo devices on the LAN and uses the first one found.
 
+## Runtime State File
+
+- `state.json` stores:
+- `mail_present`: whether new mail is currently latched in the app state.
+- `last_updated`: UTC timestamp of the last persisted mailbox state update.
+- Hue button presses always clear the display and reset `mail_present` to avoid drift between persisted state and what is shown on the Pixoo.
+
 ## API
 
 - `GET /`: configuration page that loads and saves settings through the API.
 - `GET /api/config`: returns the current configuration.
 - `PUT /api/config`: saves configuration and immediately restarts the runtime.
-- `GET /api/status`: returns whether the config is complete and whether the runtime is currently running.
 - `GET /api/discover/hue-bridges`: discovers Hue Bridges on the local network via the Hue discovery service.
 - `GET /api/discover/pixoo`: discovers Pixoo devices on the local network.
 - `POST /api/discover/hue-contacts`: discovers Hue contact sensors from the configured bridge.
 - `POST /api/discover/hue-buttons`: discovers Hue button resources from the configured bridge.
 - `POST /api/hue/create-token`: creates a Hue application key through the bridge link-button flow.
+- `POST /api/test/hue-contact`: triggers the internal mail-detected flow without contacting the Hue bridge.
+- `POST /api/test/hue-button`: triggers the internal clear flow without contacting the Hue bridge.
 
 ## Hue Token Flow
 
@@ -80,6 +90,13 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - Click `Create Token` in the UI.
 - The UI fills `Hue API Token` when the bridge returns a new application key.
 - Click `Save Settings` to persist the token into `config.json`.
+
+## UI Test Buttons
+
+- The `Test` button next to `Discover Contacts` triggers the internal `mail detected` flow.
+- The `Test` button next to `Discover Buttons` triggers the internal `button pressed` flow.
+- These do not contact the Hue bridge and are meant to test the Pixoo flow directly.
+- Each button stays disabled until the corresponding configured resource ID is present.
 
 ## Pixoo Behavior
 

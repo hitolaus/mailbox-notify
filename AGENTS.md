@@ -25,11 +25,14 @@
 - The FastAPI app can discover Hue Bridges on the LAN through the Hue discovery service for configuration UI use.
 - The config UI can create Hue application keys through the bridge link-button flow.
 - The config UI can discover Hue contacts and buttons from the configured bridge.
+- The config UI has `Test` buttons for contact/button flows that trigger internal normalized events without contacting the Hue bridge.
 - The Pixoo adapter uses the `pixoo` library for device control.
 - Pixoo device selection prefers `pixoo_host`; otherwise it auto-discovers on the LAN and uses the first device returned.
 - If Pixoo auto-discovery is not available through the library, fall back to `https://app.divoom-gz.com/Device/ReturnSameLANDevice`.
 - Treat the mailbox sensor as the source of truth for the "new mail" state.
 - Treat the Hue button press as the only clear action.
+- Persist runtime mailbox state in `state.json` with `mail_present` and `last_updated`.
+- Clear the Pixoo display unconditionally on Hue button presses to avoid drift between persisted state and displayed state.
 - Treat Hue `contact_report.state == contact` as the mail-detected signal.
 - Treat Hue `button.button_report.event == initial_press` as the clear signal.
 - The Pixoo notification rendering is a continuously looping modern envelope-opening animation.
@@ -49,5 +52,6 @@
 - The app logs each normalized Hue event when it is received in `app.py`.
 - The main application process is a FastAPI server that hosts a simple configuration page and JSON API.
 - Configuration is stored in a local `config.json` file in the project root and updates should restart the runtime immediately.
+- The UI does not expose a separate runtime status badge.
 - The current UI loads and saves real config values, has live Hue bridge and Pixoo discovery controls, supports Hue token creation, and discovers real contacts/buttons from the configured bridge.
 - The mock bridge is HTTP-only and is intended for local development and Pixoo integration testing.

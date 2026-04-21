@@ -35,6 +35,6 @@ class MailboxStateMachine:
                 await display.show_new_mail()
             return
 
-        if event.kind is HueEventType.BUTTON_PRESSED and self.mail_present:
+        if event.kind is HueEventType.BUTTON_PRESSED:
             self.mail_present = False
             await display.clear()

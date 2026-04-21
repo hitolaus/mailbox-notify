@@ -8,9 +8,21 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from mailbox_notify.app import create_app, main, run_mailbox_runtime, serve
+from mailbox_notify.app import (
+    MailboxRuntime,
+    MailboxRuntimeError,
+    create_app,
+    main,
+    run_mailbox_runtime,
+    serve,
+)
 from mailbox_notify.config import Config, default_config, load_config
 from mailbox_notify.hue import HueTokenCreationError, button_pressed, mail_detected
+from mailbox_notify.runtime_state import (
+    RuntimeState,
+    load_runtime_state,
+    save_runtime_state,
+)
 from mailbox_notify.state import MailboxStateMachine
 
 
@@ -44,8 +56,9 @@ class FakePixooDisplay:
 class FakeRuntimeManager:
     last_instance: FakeRuntimeManager | None = None
 
-    def __init__(self, config_path: Path) -> None:
+    def __init__(self, config_path: Path, state_path: Path | None = None) -> None:
         self.config_path = config_path
+        self.state_path = state_path
         self.started = False
         self.stopped = False
         self.restarted_with: Config | None = None
@@ -64,6 +77,12 @@ class FakeRuntimeManager:
             "configured": config is not None and bool(config.hue_base_url),
             "running": config is not None and bool(config.hue_base_url),
         }
+
+    async def trigger_contact_test(self) -> None:
+        return None
+
+    async def trigger_button_test(self) -> None:
+        return None
 
     def status(self) -> dict[str, bool]:
         return self._status
@@ -126,6 +145,149 @@ class AppRuntimeTests(unittest.TestCase):
         run_mock.assert_called_once()
 
 
+class MailboxRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sync_display_from_state_shows_mail_when_persisted(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            save_runtime_state(
+                RuntimeState(mail_present=True, last_updated="2026-04-20T12:34:56Z"),
+                state_path,
+            )
+            display = FakePixooDisplay()
+            runtime = MailboxRuntime(
+                Config(
+                    hue_base_url="http://127.0.0.1:8000",
+                    hue_api_token="token",
+                    hue_contact_id="contact-id",
+                    hue_button_id="button-id",
+                    pixoo_host="",
+                ),
+                display,
+                state_path,
+            )
+
+            await runtime.sync_display_from_state()
+
+            self.assertEqual(display.calls, ["show_new_mail"])
+
+    async def test_sync_display_from_state_clears_when_persisted_false(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            save_runtime_state(
+                RuntimeState(mail_present=False, last_updated="2026-04-20T12:34:56Z"),
+                state_path,
+            )
+            display = FakePixooDisplay()
+            runtime = MailboxRuntime(
+                Config(
+                    hue_base_url="http://127.0.0.1:8000",
+                    hue_api_token="token",
+                    hue_contact_id="contact-id",
+                    hue_button_id="button-id",
+                    pixoo_host="",
+                ),
+                display,
+                state_path,
+            )
+
+            await runtime.sync_display_from_state()
+
+            self.assertEqual(display.calls, ["clear"])
+
+    async def test_sync_display_from_state_creates_missing_file_and_clears(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            display = FakePixooDisplay()
+            runtime = MailboxRuntime(
+                Config(
+                    hue_base_url="http://127.0.0.1:8000",
+                    hue_api_token="token",
+                    hue_contact_id="contact-id",
+                    hue_button_id="button-id",
+                    pixoo_host="",
+                ),
+                display,
+                state_path,
+            )
+
+            await runtime.sync_display_from_state()
+
+            self.assertTrue(state_path.exists())
+            self.assertEqual(display.calls, ["clear"])
+
+    async def test_trigger_contact_test_drives_display(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            runtime = MailboxRuntime(
+                Config(
+                    hue_base_url="http://127.0.0.1:8000",
+                    hue_api_token="token",
+                    hue_contact_id="contact-id",
+                    hue_button_id="button-id",
+                    pixoo_host="",
+                ),
+                FakePixooDisplay(),
+                state_path,
+            )
+
+            await runtime.trigger_contact_test()
+
+            self.assertEqual(runtime.display.calls, ["show_new_mail"])
+
+    async def test_trigger_button_test_drives_display(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            display = FakePixooDisplay()
+            runtime = MailboxRuntime(
+                Config(
+                    hue_base_url="http://127.0.0.1:8000",
+                    hue_api_token="token",
+                    hue_contact_id="contact-id",
+                    hue_button_id="button-id",
+                    pixoo_host="",
+                ),
+                display,
+                state_path,
+            )
+
+            await runtime.trigger_contact_test()
+            await runtime.trigger_button_test()
+
+            self.assertEqual(display.calls, ["show_new_mail", "clear"])
+
+    async def test_runtime_loads_persisted_mail_state_and_button_clears_it(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            save_runtime_state(
+                RuntimeState(mail_present=True, last_updated="2026-04-20T12:34:56Z"),
+                state_path,
+            )
+            display = FakePixooDisplay()
+            runtime = MailboxRuntime(
+                Config(
+                    hue_base_url="http://127.0.0.1:8000",
+                    hue_api_token="token",
+                    hue_contact_id="contact-id",
+                    hue_button_id="button-id",
+                    pixoo_host="",
+                ),
+                display,
+                state_path,
+            )
+
+            await runtime.trigger_button_test()
+
+            self.assertFalse(runtime.state_machine.mail_present)
+            self.assertEqual(display.calls, ["clear"])
+            persisted = load_runtime_state(state_path)
+            self.assertFalse(persisted.mail_present)
+            self.assertTrue(persisted.last_updated.endswith("Z"))
+
+
 class AppApiTests(unittest.TestCase):
     def test_root_returns_dummy_page_and_config_routes_persist_json(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -143,7 +305,6 @@ class AppApiTests(unittest.TestCase):
                         "pixoo_host": "",
                     }
                     put_response = client.put("/api/config", json=payload)
-                    status_response = client.get("/api/status")
 
                 manager = FakeRuntimeManager.last_instance
 
@@ -153,7 +314,6 @@ class AppApiTests(unittest.TestCase):
             self.assertIn("Discover Bridges", root.text)
             self.assertIn("Discover Pixoo", root.text)
             self.assertIn("/api/config", root.text)
-            self.assertIn("/api/status", root.text)
             self.assertIn("Save Settings", root.text)
             self.assertIn("Create Token", root.text)
             self.assertIn('type="text"', root.text)
@@ -161,8 +321,13 @@ class AppApiTests(unittest.TestCase):
             self.assertIn("/api/discover/pixoo", root.text)
             self.assertIn("/api/discover/hue-contacts", root.text)
             self.assertIn("/api/discover/hue-buttons", root.text)
+            self.assertIn("/api/test/hue-contact", root.text)
+            self.assertIn("/api/test/hue-button", root.text)
             self.assertIn("Discover Contacts", root.text)
             self.assertIn("Discover Buttons", root.text)
+            self.assertGreaterEqual(root.text.count(">Test<"), 2)
+            self.assertNotIn("What this mock demonstrates", root.text)
+            self.assertNotIn("Planned discovery flow", root.text)
             self.assertEqual(config_response.status_code, 200)
             self.assertEqual(config_response.json(), default_config().__dict__)
             self.assertEqual(put_response.status_code, 200)
@@ -171,9 +336,6 @@ class AppApiTests(unittest.TestCase):
             self.assertTrue(manager.started)
             self.assertTrue(manager.stopped)
             self.assertEqual(manager.restarted_with, Config(**payload))
-            self.assertEqual(
-                status_response.json(), {"configured": True, "running": True}
-            )
 
     def test_hue_bridge_discovery_endpoint_returns_normalized_bridges(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -374,3 +536,38 @@ class AppApiTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json(), {"detail": "link button not pressed"})
+
+    def test_hue_contact_test_endpoint_triggers_runtime(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            manager = FakeRuntimeManager(config_path)
+            with patch(
+                "mailbox_notify.app.MailboxRuntimeManager", return_value=manager
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.post("/api/test/hue-contact")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_hue_button_test_endpoint_returns_runtime_error(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            manager = FakeRuntimeManager(config_path)
+
+            async def fail() -> None:
+                raise MailboxRuntimeError("Hue Button ID is required before testing.")
+
+            manager.trigger_button_test = fail
+            with patch(
+                "mailbox_notify.app.MailboxRuntimeManager", return_value=manager
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.post("/api/test/hue-button")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(), {"detail": "Hue Button ID is required before testing."}
+        )

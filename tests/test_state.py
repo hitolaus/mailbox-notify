@@ -28,4 +28,4 @@ class StateMachineTests(unittest.IsolatedAsyncioTestCase):
         await state.handle(button_pressed(), display)
 
         self.assertFalse(state.mail_present)
-        self.assertEqual(display.calls, ["show_new_mail", "clear"])
+        self.assertEqual(display.calls, ["show_new_mail", "clear", "clear"])
