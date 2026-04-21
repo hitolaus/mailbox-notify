@@ -114,7 +114,7 @@ async def discover_hue_contacts(base_url: str, api_token: str) -> list[dict[str,
             }
         )
 
-    return contacts
+    return sorted(contacts, key=lambda contact: contact["name"].casefold())
 
 
 async def discover_hue_buttons(base_url: str, api_token: str) -> list[dict[str, str]]:
@@ -137,7 +137,7 @@ async def discover_hue_buttons(base_url: str, api_token: str) -> list[dict[str, 
             }
         )
 
-    return buttons
+    return sorted(buttons, key=lambda button: button["name"].casefold())
 
 
 async def _discover_hue_resources(

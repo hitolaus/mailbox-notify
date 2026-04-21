@@ -183,6 +183,33 @@ class HueResourceDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_discover_hue_contacts_orders_by_name(self) -> None:
+        payloads = [
+            {
+                "data": [
+                    {"id": "contact-id-1", "owner": {"rid": "device-id-1"}},
+                    {"id": "contact-id-2", "owner": {"rid": "device-id-2"}},
+                ]
+            },
+            {"data": []},
+            {
+                "data": [
+                    {"id": "device-id-1", "metadata": {"name": "Zulu Sensor"}},
+                    {"id": "device-id-2", "metadata": {"name": "Alpha Sensor"}},
+                ]
+            },
+        ]
+
+        with patch(
+            "mailbox_notify.hue.aiohttp.ClientSession",
+            return_value=_build_fake_client_session(payloads),
+        ):
+            contacts = await discover_hue_contacts("https://10.0.0.20", "token")
+
+        self.assertEqual(
+            [contact["name"] for contact in contacts], ["Alpha Sensor", "Zulu Sensor"]
+        )
+
     async def test_discover_hue_buttons_includes_control_id(self) -> None:
         payloads = [
             {"data": []},
@@ -218,6 +245,41 @@ class HueResourceDiscoveryTests(unittest.IsolatedAsyncioTestCase):
                     "control_id": "1",
                 }
             ],
+        )
+
+    async def test_discover_hue_buttons_order_by_name(self) -> None:
+        payloads = [
+            {"data": []},
+            {
+                "data": [
+                    {
+                        "id": "button-id-1",
+                        "owner": {"rid": "device-id-1"},
+                        "metadata": {"control_id": 1},
+                    },
+                    {
+                        "id": "button-id-2",
+                        "owner": {"rid": "device-id-2"},
+                        "metadata": {"control_id": 2},
+                    },
+                ]
+            },
+            {
+                "data": [
+                    {"id": "device-id-1", "metadata": {"name": "Zulu Button"}},
+                    {"id": "device-id-2", "metadata": {"name": "Alpha Button"}},
+                ]
+            },
+        ]
+
+        with patch(
+            "mailbox_notify.hue.aiohttp.ClientSession",
+            return_value=_build_fake_client_session(payloads),
+        ):
+            buttons = await discover_hue_buttons("https://10.0.0.20", "token")
+
+        self.assertEqual(
+            [button["name"] for button in buttons], ["Alpha Button", "Zulu Button"]
         )
 
     async def test_discover_hue_contacts_requires_token(self) -> None:
