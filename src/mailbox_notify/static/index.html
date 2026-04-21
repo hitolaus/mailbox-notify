@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mailbox Notify</title>
+  <link rel="stylesheet" href="/static/index.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">Mailbox Notify</span>
+        <h1>Configure your mailbox display</h1>
+        <p>Mock settings interface for the next step of the app. Discovery buttons use placeholder data for now so the layout and interaction flow can be reviewed before wiring the backend.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <section class="section">
+        <h2 class="section-title">Hue Bridge</h2>
+        <p class="section-copy">Point the runtime at a Hue Bridge or the local mock bridge, then pick the contact sensor and clear button you want to use.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="hue-base-url">Hue Base URL</label>
+            <div class="inline-row">
+              <input id="hue-base-url" name="hue_base_url" data-config-key="hue_base_url" type="text" placeholder="http://127.0.0.1:8000">
+              <button type="button" class="button-secondary button-size-secondary" data-live-discover="hue-bridge-results" data-live-discover-url="/api/discover/hue-bridges">Discover Bridges</button>
+            </div>
+            <div id="hue-bridge-results" class="mock-results" data-input-target="hue-base-url"></div>
+          </div>
+          <div class="field">
+            <label for="hue-api-token">Hue API Token</label>
+            <div class="inline-row">
+              <input id="hue-api-token" name="hue_api_token" data-config-key="hue_api_token" type="text" placeholder="Paste application key">
+              <button id="create-token" type="button" class="button-secondary button-size-secondary">Create Token</button>
+            </div>
+            <div id="token-feedback" class="feedback">Press the bridge button, then click Create Token.</div>
+          </div>
+          <div class="field">
+            <label for="hue-contact-id">Hue Contact ID</label>
+            <div class="inline-row">
+              <input id="hue-contact-id" name="hue_contact_id" data-config-key="hue_contact_id" type="text" placeholder="contact resource id">
+              <div class="inline-row">
+                <button type="button" class="button-secondary button-size-secondary" data-live-discover="contact-results" data-live-discover-url="/api/discover/hue-contacts">Discover Contacts</button>
+                <button id="test-contact" type="button" class="button-ghost button-size-compact" disabled>Test</button>
+              </div>
+            </div>
+            <div id="contact-results" class="mock-results" data-input-target="hue-contact-id"></div>
+          </div>
+          <div class="field">
+            <label for="hue-button-id">Hue Button ID</label>
+            <div class="inline-row">
+              <input id="hue-button-id" name="hue_button_id" data-config-key="hue_button_id" type="text" placeholder="button resource id">
+              <div class="inline-row">
+                <button type="button" class="button-secondary button-size-secondary" data-live-discover="button-results" data-live-discover-url="/api/discover/hue-buttons">Discover Buttons</button>
+                <button id="test-button" type="button" class="button-ghost button-size-compact" disabled>Test</button>
+              </div>
+            </div>
+            <div id="button-results" class="mock-results" data-input-target="hue-button-id"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Pixoo Display</h2>
+        <p class="section-copy">Enter a Pixoo IP manually or use discovery to select one of the devices found on the local network.</p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="pixoo-host">Pixoo Host</label>
+            <div class="inline-row">
+              <input id="pixoo-host" name="pixoo_host" data-config-key="pixoo_host" type="text" placeholder="10.0.0.47">
+              <button type="button" class="button-secondary button-size-secondary" data-live-discover="pixoo-results" data-live-discover-url="/api/discover/pixoo">Discover Pixoo</button>
+            </div>
+            <div id="pixoo-results" class="mock-results" data-input-target="pixoo-host"></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button id="save-settings" type="button" class="button-primary button-size-primary">Save Settings</button>
+        <button id="reset-settings" type="button" class="button-ghost button-size-compact">Reset</button>
+        <span id="save-feedback" class="feedback">Ready.</span>
+      </div>
+    </section>
+  </main>
+  <script src="/static/index.js"></script>
+</body>
+</html>
