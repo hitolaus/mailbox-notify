@@ -10,8 +10,11 @@ from cli.mock_hue_bridge import BUTTON_ID, CONTACT_ID, MockHueBridgeServer
 from mailbox_notify.hue import (
     AioHueClient,
     ConfigurableHueBridge,
+    HueDiscoveryError,
     HueTokenCreationError,
     create_hue_application_key,
+    discover_hue_buttons,
+    discover_hue_contacts,
 )
 from mailbox_notify.state import HueEventType
 
@@ -155,6 +158,75 @@ class HueTokenCreationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(error.exception), "link button not pressed")
 
 
+class HueResourceDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discover_hue_contacts_uses_device_names(self) -> None:
+        payloads = [
+            {"data": [{"id": "contact-id-1", "owner": {"rid": "device-id-1"}}]},
+            {"data": []},
+            {"data": [{"id": "device-id-1", "metadata": {"name": "Mailbox Sensor"}}]},
+        ]
+
+        with patch(
+            "mailbox_notify.hue.aiohttp.ClientSession",
+            return_value=_build_fake_client_session(payloads),
+        ):
+            contacts = await discover_hue_contacts("https://10.0.0.20", "token")
+
+        self.assertEqual(
+            contacts,
+            [
+                {
+                    "id": "contact-id-1",
+                    "name": "Mailbox Sensor",
+                    "owner_rid": "device-id-1",
+                }
+            ],
+        )
+
+    async def test_discover_hue_buttons_includes_control_id(self) -> None:
+        payloads = [
+            {"data": []},
+            {
+                "data": [
+                    {
+                        "id": "button-id-1",
+                        "owner": {"rid": "device-id-1"},
+                        "metadata": {"control_id": 1},
+                    }
+                ]
+            },
+            {
+                "data": [
+                    {"id": "device-id-1", "metadata": {"name": "Mailbox Clear Button"}}
+                ]
+            },
+        ]
+
+        with patch(
+            "mailbox_notify.hue.aiohttp.ClientSession",
+            return_value=_build_fake_client_session(payloads),
+        ):
+            buttons = await discover_hue_buttons("https://10.0.0.20", "token")
+
+        self.assertEqual(
+            buttons,
+            [
+                {
+                    "id": "button-id-1",
+                    "name": "Mailbox Clear Button",
+                    "owner_rid": "device-id-1",
+                    "control_id": "1",
+                }
+            ],
+        )
+
+    async def test_discover_hue_contacts_requires_token(self) -> None:
+        with self.assertRaises(HueDiscoveryError) as error:
+            await discover_hue_contacts("https://10.0.0.20", "")
+
+        self.assertEqual(str(error.exception), "Enter a Hue API Token first.")
+
+
 class HueClientMappingTests(unittest.TestCase):
     def test_ignore_non_update_events(self) -> None:
         client = AioHueClient(
@@ -168,3 +240,33 @@ class HueClientMappingTests(unittest.TestCase):
         client._handle_button_update(EventType.RESOURCE_ADDED, object())
 
         self.assertTrue(client._events.empty())
+
+
+def _build_fake_client_session(payloads: list[dict]):
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self) -> None:
+            return None
+
+        async def json(self):
+            return self._payload
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, headers, ssl):
+            return FakeResponse(payloads.pop(0))
+
+    return FakeSession()

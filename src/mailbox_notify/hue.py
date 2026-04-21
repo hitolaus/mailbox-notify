@@ -35,6 +35,10 @@ class HueTokenCreationError(RuntimeError):
     """Raised when creating a Hue application key fails."""
 
 
+class HueDiscoveryError(RuntimeError):
+    """Raised when Hue resource discovery fails."""
+
+
 async def discover_hue_bridges() -> list[dict[str, str]]:
     async with aiohttp.ClientSession() as session:
         async with session.get(HUE_DISCOVERY_URL) as response:
@@ -90,6 +94,108 @@ async def create_hue_application_key(
     error = first.get("error", {})
     description = str(error.get("description", "Unknown Hue Bridge error.")).strip()
     raise HueTokenCreationError(description)
+
+
+async def discover_hue_contacts(base_url: str, api_token: str) -> list[dict[str, str]]:
+    resources = await _discover_hue_resources(base_url, api_token)
+    device_names = _build_device_name_map(resources["devices"])
+    contacts: list[dict[str, str]] = []
+
+    for entry in resources["contacts"]:
+        contact_id = str(entry.get("id", "")).strip()
+        if not contact_id:
+            continue
+        owner_rid = str(entry.get("owner", {}).get("rid", "")).strip()
+        contacts.append(
+            {
+                "id": contact_id,
+                "name": device_names.get(owner_rid, "Hue Contact"),
+                "owner_rid": owner_rid,
+            }
+        )
+
+    return contacts
+
+
+async def discover_hue_buttons(base_url: str, api_token: str) -> list[dict[str, str]]:
+    resources = await _discover_hue_resources(base_url, api_token)
+    device_names = _build_device_name_map(resources["devices"])
+    buttons: list[dict[str, str]] = []
+
+    for entry in resources["buttons"]:
+        button_id = str(entry.get("id", "")).strip()
+        if not button_id:
+            continue
+        owner_rid = str(entry.get("owner", {}).get("rid", "")).strip()
+        control_id = str(entry.get("metadata", {}).get("control_id", "")).strip()
+        buttons.append(
+            {
+                "id": button_id,
+                "name": device_names.get(owner_rid, "Hue Button"),
+                "owner_rid": owner_rid,
+                "control_id": control_id,
+            }
+        )
+
+    return buttons
+
+
+async def _discover_hue_resources(
+    base_url: str, api_token: str
+) -> dict[str, list[dict]]:
+    if not base_url.strip():
+        raise HueDiscoveryError("Enter a Hue Base URL first.")
+    if not api_token.strip():
+        raise HueDiscoveryError("Enter a Hue API Token first.")
+
+    contacts_path = _resource_url(base_url, "contact")
+    buttons_path = _resource_url(base_url, "button")
+    devices_path = _resource_url(base_url, "device")
+    headers = {"hue-application-key": api_token.strip()}
+
+    async with aiohttp.ClientSession() as session:
+        contacts, buttons, devices = await asyncio.gather(
+            _fetch_hue_resource(session, contacts_path, headers),
+            _fetch_hue_resource(session, buttons_path, headers),
+            _fetch_hue_resource(session, devices_path, headers),
+        )
+
+    return {"contacts": contacts, "buttons": buttons, "devices": devices}
+
+
+async def _fetch_hue_resource(
+    session: aiohttp.ClientSession, url: str, headers: dict[str, str]
+) -> list[dict]:
+    try:
+        async with session.get(url, headers=headers, ssl=False) as response:
+            response.raise_for_status()
+            body = await response.json()
+    except aiohttp.ClientError as exc:
+        raise HueDiscoveryError(f"Unable to query Hue Bridge: {exc}") from exc
+
+    if (
+        not isinstance(body, dict)
+        or "data" not in body
+        or not isinstance(body["data"], list)
+    ):
+        raise HueDiscoveryError("Unexpected response from Hue Bridge.")
+    return body["data"]
+
+
+def _resource_url(base_url: str, resource_type: str) -> str:
+    cleaned_base_url = base_url.rstrip("/")
+    return f"{cleaned_base_url}/clip/v2/resource/{resource_type}"
+
+
+def _build_device_name_map(devices: list[dict]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for device in devices:
+        device_id = str(device.get("id", "")).strip()
+        if not device_id:
+            continue
+        name = str(device.get("metadata", {}).get("name", "")).strip() or "Hue Device"
+        names[device_id] = name
+    return names
 
 
 class ConfigurableHueBridge(HueBridgeV2):

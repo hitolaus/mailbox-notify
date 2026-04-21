@@ -24,9 +24,12 @@ from .config import (
 from .hue import (
     AioHueClient,
     HueClient,
+    HueDiscoveryError,
     HueTokenCreationError,
     create_hue_application_key,
+    discover_hue_buttons,
     discover_hue_bridges,
+    discover_hue_contacts,
 )
 from .pixoo import PixooDisplay, create_pixoo_display, discover_pixoo_devices
 from .state import MailboxStateMachine
@@ -421,23 +424,17 @@ INDEX_HTML = """<!DOCTYPE html>
                 <label for="hue-contact-id">Hue Contact ID</label>
                 <div class="inline-row">
                   <input id="hue-contact-id" name="hue_contact_id" data-config-key="hue_contact_id" type="text" placeholder="contact resource id">
-                  <button type="button" class="button-secondary" data-discover-target="contact-results">Discover Contacts</button>
+                  <button type="button" class="button-secondary" data-live-discover="contact-results" data-live-discover-url="/api/discover/hue-contacts">Discover Contacts</button>
                 </div>
-                <div id="contact-results" class="mock-results" data-input-target="hue-contact-id">
-                  <button type="button" class="mock-option" data-value="contact-id-1">Mailbox Contact<small>contact-id-1</small></button>
-                  <button type="button" class="mock-option" data-value="contact-id-2">Door Sensor<small>contact-id-2</small></button>
-                </div>
+                <div id="contact-results" class="mock-results" data-input-target="hue-contact-id"></div>
               </div>
               <div class="field">
                 <label for="hue-button-id">Hue Button ID</label>
                 <div class="inline-row">
                   <input id="hue-button-id" name="hue_button_id" data-config-key="hue_button_id" type="text" placeholder="button resource id">
-                  <button type="button" class="button-secondary" data-discover-target="button-results">Discover Buttons</button>
+                  <button type="button" class="button-secondary" data-live-discover="button-results" data-live-discover-url="/api/discover/hue-buttons">Discover Buttons</button>
                 </div>
-                <div id="button-results" class="mock-results" data-input-target="hue-button-id">
-                  <button type="button" class="mock-option" data-value="button-id-1">Mailbox Clear Button<small>button-id-1</small></button>
-                  <button type="button" class="mock-option" data-value="button-id-2">Kitchen Button<small>button-id-2</small></button>
-                </div>
+                <div id="button-results" class="mock-results" data-input-target="hue-button-id"></div>
               </div>
             </div>
           </section>
@@ -467,7 +464,7 @@ INDEX_HTML = """<!DOCTYPE html>
         <aside>
           <section class="aside-card">
             <h3>What this mock demonstrates</h3>
-            <p>The page now loads and saves the current JSON config directly through the API. Discovery for Hue Bridges and Pixoo devices is live, while contact and button discovery remains mocked for now.</p>
+            <p>The page now loads and saves the current JSON config directly through the API. Discovery for Hue Bridges, Pixoo devices, contacts, and buttons is live.</p>
           </section>
           <section class="aside-card">
             <h3>Planned discovery flow</h3>
@@ -483,7 +480,6 @@ INDEX_HTML = """<!DOCTYPE html>
   </main>
 
   <script>
-    const discoverButtons = document.querySelectorAll('[data-discover-target]');
     const liveDiscoverButtons = document.querySelectorAll('[data-live-discover]');
     const resultPanels = document.querySelectorAll('.mock-results');
     const configInputs = document.querySelectorAll('[data-config-key]');
@@ -570,19 +566,6 @@ INDEX_HTML = """<!DOCTYPE html>
       });
     }
 
-    discoverButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const targetId = button.dataset.discoverTarget;
-        const panel = document.getElementById(targetId);
-        if (!panel) {
-          return;
-        }
-        const willOpen = !panel.classList.contains('open');
-        closeOtherPanels(targetId);
-        panel.classList.toggle('open', willOpen);
-      });
-    });
-
     function bindResultOptions(panel) {
       const input = document.getElementById(panel.dataset.inputTarget || '');
       panel.querySelectorAll('.mock-option').forEach((option) => {
@@ -609,27 +592,66 @@ INDEX_HTML = """<!DOCTYPE html>
 
         closeOtherPanels(panel.id);
         const isPixoo = url.includes('/api/discover/pixoo');
-        panel.innerHTML = '<div class="footnote">' + (isPixoo ? 'Discovering Pixoo devices...' : 'Discovering bridges...') + '</div>';
+        const isHueContacts = url.includes('/api/discover/hue-contacts');
+        const isHueButtons = url.includes('/api/discover/hue-buttons');
+        const loadingText = isPixoo
+          ? 'Discovering Pixoo devices...'
+          : isHueContacts
+            ? 'Discovering contact sensors...'
+            : isHueButtons
+              ? 'Discovering buttons...'
+              : 'Discovering bridges...';
+        panel.innerHTML = '<div class="footnote">' + loadingText + '</div>';
         panel.classList.add('open');
 
         try {
-          const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error('Discovery failed');
+          const options = {};
+          if (isHueContacts || isHueButtons) {
+            options.method = 'POST';
+            options.headers = { 'Content-Type': 'application/json' };
+            options.body = JSON.stringify({
+              hue_base_url: hueBaseUrlInput.value.trim(),
+              hue_api_token: tokenInput.value.trim(),
+            });
           }
 
-          const bridges = await response.json();
-          if (!Array.isArray(bridges) || bridges.length === 0) {
-            panel.innerHTML = '<div class="footnote">' + (isPixoo ? 'No Pixoo devices found on the network.' : 'No Hue Bridges found on the network.') + '</div>';
+          const response = await fetch(url, options);
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || 'Discovery failed');
+          }
+
+          const resources = await response.json();
+          if (!Array.isArray(resources) || resources.length === 0) {
+            const emptyText = isPixoo
+              ? 'No Pixoo devices found on the network.'
+              : isHueContacts
+                ? 'No contact sensors found on the bridge.'
+                : isHueButtons
+                  ? 'No buttons found on the bridge.'
+                  : 'No Hue Bridges found on the network.';
+            panel.innerHTML = '<div class="footnote">' + emptyText + '</div>';
             return;
           }
 
-          panel.innerHTML = bridges.map((bridge) => {
-            const value = isPixoo ? bridge.host : bridge.base_url;
-            const title = isPixoo ? bridge.name : 'Hue Bridge';
+          panel.innerHTML = resources.map((resource) => {
+            const value = isPixoo
+              ? resource.host
+              : (isHueContacts || isHueButtons)
+                ? resource.id
+                : resource.base_url;
+            const title = isPixoo
+              ? resource.name
+              : (isHueContacts || isHueButtons)
+                ? resource.name
+                : 'Hue Bridge';
             const subtitle = isPixoo
-              ? bridge.host + ' · ' + bridge.device_id
-              : bridge.internalipaddress + ' · ' + bridge.id;
+              ? resource.host + ' · ' + resource.device_id
+              : isHueContacts
+                ? resource.id
+                : isHueButtons
+                  ? resource.id + (resource.control_id ? ' · control ' + resource.control_id : '')
+                  : resource.internalipaddress + ' · ' + resource.id;
             return '<button type="button" class="mock-option" data-value="' + value + '">' +
               title +
               '<small>' + subtitle + '</small>' +
@@ -637,7 +659,7 @@ INDEX_HTML = """<!DOCTYPE html>
           }).join('');
           bindResultOptions(panel);
         } catch (error) {
-          panel.innerHTML = '<div class="footnote">' + (isPixoo ? 'Unable to discover Pixoo devices right now.' : 'Unable to discover Hue Bridges right now.') + '</div>';
+          panel.innerHTML = '<div class="footnote">' + (error.message || (isPixoo ? 'Unable to discover Pixoo devices right now.' : 'Unable to discover Hue resources right now.')) + '</div>';
         }
       });
     });
@@ -755,6 +777,24 @@ class HueBridgePayload(BaseModel):
     id: str
     internalipaddress: str
     base_url: str
+
+
+class HueResourceDiscoveryPayload(BaseModel):
+    hue_base_url: str = ""
+    hue_api_token: str = ""
+
+
+class HueContactPayload(BaseModel):
+    id: str
+    name: str
+    owner_rid: str
+
+
+class HueButtonPayload(BaseModel):
+    id: str
+    name: str
+    owner_rid: str
+    control_id: str
 
 
 class PixooDevicePayload(BaseModel):
@@ -901,6 +941,32 @@ def create_app(config_path: Path = CONFIG_PATH) -> FastAPI:
     async def get_pixoo_devices() -> list[PixooDevicePayload]:
         devices = await discover_pixoo_devices()
         return [PixooDevicePayload(**device) for device in devices]
+
+    @app.post("/api/discover/hue-contacts")
+    async def post_hue_contacts(
+        payload: HueResourceDiscoveryPayload,
+    ) -> list[HueContactPayload]:
+        try:
+            contacts = await discover_hue_contacts(
+                payload.hue_base_url.strip(),
+                payload.hue_api_token.strip(),
+            )
+        except HueDiscoveryError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [HueContactPayload(**contact) for contact in contacts]
+
+    @app.post("/api/discover/hue-buttons")
+    async def post_hue_buttons(
+        payload: HueResourceDiscoveryPayload,
+    ) -> list[HueButtonPayload]:
+        try:
+            buttons = await discover_hue_buttons(
+                payload.hue_base_url.strip(),
+                payload.hue_api_token.strip(),
+            )
+        except HueDiscoveryError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [HueButtonPayload(**button) for button in buttons]
 
     @app.post("/api/hue/create-token")
     async def post_hue_create_token(

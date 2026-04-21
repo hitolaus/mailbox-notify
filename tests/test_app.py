@@ -159,6 +159,8 @@ class AppApiTests(unittest.TestCase):
             self.assertIn('type="text"', root.text)
             self.assertIn("/api/hue/create-token", root.text)
             self.assertIn("/api/discover/pixoo", root.text)
+            self.assertIn("/api/discover/hue-contacts", root.text)
+            self.assertIn("/api/discover/hue-buttons", root.text)
             self.assertIn("Discover Contacts", root.text)
             self.assertIn("Discover Buttons", root.text)
             self.assertEqual(config_response.status_code, 200)
@@ -241,6 +243,88 @@ class AppApiTests(unittest.TestCase):
                         "device_id": "300247395",
                         "device_mac": "2cbcbb116a0c",
                         "hardware": "92",
+                    }
+                ],
+            )
+
+    def test_hue_contact_discovery_endpoint_returns_normalized_contacts(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with (
+                patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager),
+                patch(
+                    "mailbox_notify.app.discover_hue_contacts",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "id": "contact-id-1",
+                                "name": "Mailbox Sensor",
+                                "owner_rid": "device-id-1",
+                            }
+                        ]
+                    ),
+                ),
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/discover/hue-contacts",
+                        json={
+                            "hue_base_url": "https://10.0.0.20",
+                            "hue_api_token": "token",
+                        },
+                    )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "id": "contact-id-1",
+                        "name": "Mailbox Sensor",
+                        "owner_rid": "device-id-1",
+                    }
+                ],
+            )
+
+    def test_hue_button_discovery_endpoint_returns_normalized_buttons(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            with (
+                patch("mailbox_notify.app.MailboxRuntimeManager", FakeRuntimeManager),
+                patch(
+                    "mailbox_notify.app.discover_hue_buttons",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "id": "button-id-1",
+                                "name": "Mailbox Clear Button",
+                                "owner_rid": "device-id-1",
+                                "control_id": "1",
+                            }
+                        ]
+                    ),
+                ),
+            ):
+                app = create_app(config_path)
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/discover/hue-buttons",
+                        json={
+                            "hue_base_url": "https://10.0.0.20",
+                            "hue_api_token": "token",
+                        },
+                    )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "id": "button-id-1",
+                        "name": "Mailbox Clear Button",
+                        "owner_rid": "device-id-1",
+                        "control_id": "1",
                     }
                 ],
             )

@@ -69,6 +69,8 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 - `GET /api/status`: returns whether the config is complete and whether the runtime is currently running.
 - `GET /api/discover/hue-bridges`: discovers Hue Bridges on the local network via the Hue discovery service.
 - `GET /api/discover/pixoo`: discovers Pixoo devices on the local network.
+- `POST /api/discover/hue-contacts`: discovers Hue contact sensors from the configured bridge.
+- `POST /api/discover/hue-buttons`: discovers Hue button resources from the configured bridge.
 - `POST /api/hue/create-token`: creates a Hue application key through the bridge link-button flow.
 
 ## Hue Token Flow
@@ -98,4 +100,4 @@ Local mediator for a Philips Hue mailbox contact sensor and a Divoom Pixoo64 dis
 
 ## Next steps
 
-- Replace mocked Hue contact/button discovery with live API-backed discovery.
+- Improve the UI layout and polish discovery/result states.
