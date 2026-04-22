@@ -26,7 +26,7 @@ Local Philips Hue contact sensor to Divoom Pixoo64 display bridge.
 
 - Install `uv` if needed: `brew install uv`
 - Sync dependencies: `uv sync --locked`
-- Run the test suite: `uv run -m unittest discover -s tests`
+- Run the test suite: `uv run pytest`
 - Run the mock Hue bridge: `uv run mailbox-notify-mock-hue`
 - Run the app: `uv run mailbox-notify`
 - Open `http://127.0.0.1:8000/`

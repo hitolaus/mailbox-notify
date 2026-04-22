@@ -47,6 +47,7 @@
 - Keep changes minimal and focused.
 - Prefer small functions over deep abstraction.
 - Add tests for state transitions and event handling before expanding features.
+- Ensure `ruff` passes after modifications.
 - Avoid premature support for extra sensors, buttons, or displays.
 
 ## Operational expectations
